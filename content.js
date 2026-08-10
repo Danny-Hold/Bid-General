@@ -446,7 +446,11 @@
       undoBtn.style.display = '';
       showPanel(text, res.text);
     } catch (err) {
-      showError(String(err.message || err).slice(0, 140));
+      const raw = String(err?.message || err);
+      const msg = /extension context invalidated/i.test(raw)
+        ? 'Extension was reloaded — refresh this page.'
+        : raw;
+      showError(msg.slice(0, 140));
     } finally {
       setBusy(false);
       schedule();
