@@ -46,8 +46,97 @@ Leave these exactly as written when they are proper nouns or identifiers: names,
 
 Return only the translated message text. No commentary, no explanation, no quotation marks, no markdown.`;
 
+/**
+ * Native tone. English in, English out. Unlike Rephrase (which only makes the
+ * message read naturally), this one deliberately compresses into the set
+ * phrases and idioms a native writer would actually reach for, and pitches the
+ * respect level at whoever is on the other side of the chat.
+ * {{audience}} and {{guidance}} are filled in per level.
+ */
+const DEFAULT_NATIVE_PROMPT =
+`Rewrite a short English chat message so that it reads the way a fluent native English speaker would actually write it to {{audience}}.
+
+The point of this rewrite is to sound native, not translated. Native writers compress: they cut filler, drop words the reader can infer, and reach for the common set phrase instead of explaining the idea longhand. Prefer the everyday idioms, phrasal verbs and fixed expressions ordinary native speakers use in chat — "let me know", "get back to you", "sounds good", "up to you", "give it a shot", "heads up", "on it", "no rush" — but only where one genuinely fits. Never force an idiom in, never use a rare or literary one, and never use one the reader would have to stop and decode. Where plain wording is what a native would write, use plain wording.
+
+Aim shorter than the original wherever the meaning allows.
+
+{{guidance}}
+
+Preserve the meaning exactly. Never add facts, prices, dates, timelines, deliverables, qualifications or commitments that are not already in the original. If something is vague, leave it vague. Keep questions as questions. Keep the original's level of certainty: do not turn "I think I can" into "I can".
+
+Leave these exactly as written: names, technical terms, file names, URLs, numbers, prices, dates and any code.
+
+Keep it a chat message rather than an email, and keep it in English. Do not add a greeting or a sign-off that was not already there. No emoji, no em dashes, no marketing language, and no exclamation marks unless the original had them.
+
+Return only the message text. No commentary, no explanation, no quotation marks, no markdown.`;
+
+/**
+ * Five relationship levels, ordered from most casual to most deferential.
+ * Levels 3 to 5 all have to read as respectful; 4 and 5 most of all.
+ * `id` is what gets stored and sent, so it must not change once shipped.
+ */
+const NATIVE_LEVELS = [
+  {
+    id: 'friend',
+    label: 'Friend',
+    title: 'Best friend',
+    blurb: 'Relaxed and blunt. Slang and fragments fine.',
+    audience: 'a close friend',
+    hotkey: 'Ctrl+Alt+Digit1',
+    guidance:
+`The reader is a close friend. Write the way you would text someone you have known for years: relaxed, blunt and short, contractions everywhere, sentence fragments and mild slang are fine. Drop the politeness formulas — no "please could you", no "I was wondering if", no thanking them for small things. Warmth here comes from sounding easy, not from sounding polite.`
+  },
+  {
+    id: 'teammate',
+    label: 'Peer',
+    title: 'Same-level teammate',
+    blurb: 'Casual and efficient. No ceremony.',
+    audience: 'a teammate at the same level as you',
+    hotkey: 'Ctrl+Alt+Digit2',
+    guidance:
+`The reader is a teammate at your own level. Write like a working peer in a team chat: casual, efficient and direct, contractions throughout, no ceremony and no throat-clearing. Getting to the point fast is the courteous thing here. Keep it clear of heavy slang and in-jokes — assume a manager could scroll past it.`
+  },
+  {
+    id: 'polite',
+    label: 'Polite',
+    title: 'Someone you do not know well',
+    blurb: 'Natural but courteous. Asks, never instructs.',
+    audience: 'someone you do not know well and want to come across as respectful to',
+    hotkey: 'Ctrl+Alt+Digit3',
+    guidance:
+`The reader is someone you do not know well, so this has to read as respectful as well as natural. Keep it plainly worded and friendly, but stay courteous throughout: ask rather than instruct ("could you", "would you mind" rather than "send me"), keep "please" and "thank you" where they belong, and soften anything that would land as blunt or demanding. No slang, no in-jokes, no over-familiarity. The respect comes from being considerate and clear, not from being stiff, formal or wordy.`
+  },
+  {
+    id: 'client',
+    label: 'Client',
+    title: 'Client',
+    blurb: 'Professional and respectful. No slang at all.',
+    audience: 'a client who is paying you for your work',
+    hotkey: 'Ctrl+Alt+Digit4',
+    guidance:
+`The reader is a paying client and this message has to earn their confidence, so respect is the priority. Be professional, courteous and warm the whole way through: keep "please", "thank you" and "I appreciate" where they fit, acknowledge their point before answering it, and take responsibility rather than making excuses. Concise and native, but never casual, never curt and never slangy: no "yeah", "gonna", "no worries", "my bad", "ASAP". Use only idioms that are safe in professional writing, such as "happy to", "let me know", "get back to you", "walk you through".`
+  },
+  {
+    id: 'boss',
+    label: 'Boss',
+    title: 'Boss',
+    blurb: 'Brief and deferential. Point first.',
+    audience: 'your manager, who is senior to you',
+    hotkey: 'Ctrl+Alt+Digit5',
+    guidance:
+`The reader is your manager or someone senior to you, so the message must read as clearly respectful while staying efficient. Lead with the point — senior readers skim, and brevity is itself a courtesy — then keep the tone deferential: ask, do not tell, and never issue an instruction to them. No slang and no over-familiarity. Keep "please" and "thank you" where they fit. State problems plainly, without excuses and without defensiveness, and keep any hedge the original had; do not turn a maybe into a promise, yours or theirs.`
+  }
+];
+
+const DEFAULT_NATIVES = NATIVE_LEVELS.map(l => ({ id: l.id, hotkey: l.hotkey, on: true }));
+
 const MAX_API_KEYS = 5;
 const MAX_TRANSLATORS = 6;
+
+/** Look up a tone level by its stored id. */
+function nativeLevel(id) {
+  return NATIVE_LEVELS.find(l => l.id === String(id || '').trim()) || null;
+}
 
 /** Target languages only — English is handled by Fix / Rephrase, not Translate. */
 const LANGUAGE_OPTIONS = [
@@ -104,11 +193,13 @@ const DEFAULTS = {
   keyRephrase: 'Ctrl+Alt+KeyS',
   keyUndo: 'Ctrl+Alt+KeyQ',
   translators: DEFAULT_TRANSLATORS,
+  natives: DEFAULT_NATIVES,
   showFeedback: true,
   feedbackSeconds: 6,
   fixPrompt: DEFAULT_FIX_PROMPT,
   rephrasePrompt: DEFAULT_REPHRASE_PROMPT,
-  translatePrompt: DEFAULT_TRANSLATE_PROMPT
+  translatePrompt: DEFAULT_TRANSLATE_PROMPT,
+  nativePrompt: DEFAULT_NATIVE_PROMPT
 };
 
 /** Build a stable combo string from a keyboard event. */
@@ -180,6 +271,29 @@ function normalizeTranslators(settings) {
 }
 
 /**
+ * Always returns all five levels, in canonical order, whatever is in storage.
+ * A hotkey that is missing or already claimed by an earlier level is dropped to
+ * '' — the button still works by click, it just has no shortcut.
+ */
+function normalizeNatives(settings) {
+  const raw = Array.isArray(settings?.natives) ? settings.natives : [];
+  const saved = new Map();
+  for (const row of raw) {
+    const id = String(row?.id || '').trim();
+    if (id && !saved.has(id)) saved.set(id, row);
+  }
+
+  const used = new Set();
+  return NATIVE_LEVELS.map(level => {
+    const row = saved.get(level.id);
+    let hotkey = String(row?.hotkey || level.hotkey).trim();
+    if (used.has(hotkey)) hotkey = used.has(level.hotkey) ? '' : level.hotkey;
+    if (hotkey) used.add(hotkey);
+    return { id: level.id, hotkey, on: row ? row.on !== false : true };
+  });
+}
+
+/**
  * Settings live in chrome.storage.local, which is tied to this browser profile
  * and never leaves the machine. chrome.storage.sync would push the API key to
  * every device signed into the same Google account, including personal ones.
@@ -204,16 +318,20 @@ async function loadSettings() {
 async function migrateSettings(settings) {
   const keys = normalizeApiKeys(settings);
   const translators = normalizeTranslators(settings);
+  const natives = normalizeNatives(settings);
   const translatePrompt =
     !settings.translatePrompt || settings.translatePrompt === LEGACY_TRANSLATE_PROMPT
       ? DEFAULT_TRANSLATE_PROMPT
       : settings.translatePrompt;
+  const nativePrompt = settings.nativePrompt || DEFAULT_NATIVE_PROMPT;
 
   const needsWrite =
     settings.apiKey ||
     JSON.stringify(settings.apiKeys || []) !== JSON.stringify(keys) ||
     JSON.stringify(settings.translators || []) !== JSON.stringify(translators) ||
-    settings.translatePrompt !== translatePrompt;
+    JSON.stringify(settings.natives || []) !== JSON.stringify(natives) ||
+    settings.translatePrompt !== translatePrompt ||
+    settings.nativePrompt !== nativePrompt;
 
   const next = {
     ...settings,
@@ -221,7 +339,9 @@ async function migrateSettings(settings) {
     apiKey: '',
     apiKeyIndex: Math.min(Math.max(0, Number(settings.apiKeyIndex) || 0), Math.max(0, keys.length - 1)),
     translators,
-    translatePrompt
+    natives,
+    translatePrompt,
+    nativePrompt
   };
 
   if (needsWrite) {
@@ -230,7 +350,9 @@ async function migrateSettings(settings) {
       apiKey: '',
       apiKeyIndex: next.apiKeyIndex,
       translators: next.translators,
-      translatePrompt: next.translatePrompt
+      natives: next.natives,
+      translatePrompt: next.translatePrompt,
+      nativePrompt: next.nativePrompt
     });
   }
 

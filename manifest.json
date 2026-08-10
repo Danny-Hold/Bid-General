@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "BidPolish",
-  "version": "1.3.0",
-  "description": "Fix, rephrase or translate chat messages in place on Freelancer, WhatsApp and Telegram.",
+  "version": "1.4.0",
+  "description": "Fix, rephrase, retone or translate chat messages in place on Freelancer, WhatsApp and Telegram.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://generativelanguage.googleapis.com/*"

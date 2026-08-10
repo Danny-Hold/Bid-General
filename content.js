@@ -36,13 +36,28 @@
     return base.length > 10 ? base.slice(0, 9) + '…' : base;
   }
 
+  // Mirrors NATIVE_LEVELS in defaults.js — the content script does not load it.
+  // Only what the bar needs: the id to send, and how to label the button.
+  const NATIVE_LEVELS = [
+    { id: 'friend', label: 'Friend', who: 'a best friend' },
+    { id: 'teammate', label: 'Peer', who: 'a same-level teammate' },
+    { id: 'polite', label: 'Polite', who: 'someone you do not know well' },
+    { id: 'client', label: 'Client', who: 'a client' },
+    { id: 'boss', label: 'Boss', who: 'your boss' }
+  ];
+
   const cfg = {
     showFeedback: true,
     feedbackSeconds: 6,
     translators: [
       { language: 'Spanish', hotkey: 'Ctrl+Alt+KeyD' },
       { language: 'French', hotkey: 'Ctrl+Alt+KeyF' }
-    ]
+    ],
+    natives: NATIVE_LEVELS.map((l, i) => ({
+      id: l.id,
+      hotkey: 'Ctrl+Alt+Digit' + (i + 1),
+      on: true
+    }))
   };
 
   function applySettings(s) {
@@ -59,17 +74,27 @@
         }))
         .filter(t => t.language && t.hotkey && !/^english$/i.test(t.language));
     }
+    if (Array.isArray(s.natives)) {
+      cfg.natives = s.natives
+        .map(n => ({
+          id: String(n?.id || '').trim(),
+          hotkey: String(n?.hotkey || '').trim(),
+          on: n?.on !== false
+        }))
+        .filter(n => NATIVE_LEVELS.some(l => l.id === n.id));
+    }
 
     if (!fixBtn) return;
     fixBtn.title = 'Correct grammar and spelling only (' + comboLabel(keys.fix) + ')';
     rephraseBtn.title = 'Rewrite in natural US business English (' + comboLabel(keys.rephrase) + ')';
     undoBtn.title = 'Restore the original text (' + comboLabel(keys.undo) + ')';
+    rebuildNativeButtons();
     rebuildTranslateButtons();
   }
 
   const WATCHED = [
     'keyFix', 'keyRephrase', 'keyUndo',
-    'showFeedback', 'feedbackSeconds', 'translators'
+    'showFeedback', 'feedbackSeconds', 'translators', 'natives'
   ];
 
   chrome.storage.local.get(WATCHED).then(applySettings).catch(() => {});
@@ -88,6 +113,8 @@
   let host, shadow, bar, fixBtn, rephraseBtn, undoBtn, note;
   let translateSep, translateWrap;
   let translateBtns = [];
+  let nativeSep, nativeWrap;
+  let nativeBtns = [];
   let panel, beforeEl, afterEl;
   let rafId = null;
   let panelTimer = null;
@@ -309,6 +336,35 @@
 
   // ------------------------------------------------------------------- UI
 
+  function rebuildNativeButtons() {
+    if (!nativeWrap) return;
+
+    nativeWrap.replaceChildren();
+    nativeBtns = [];
+
+    const list = (cfg.natives || []).filter(n => n.on !== false);
+    nativeSep.style.display = list.length ? '' : 'none';
+    nativeWrap.style.display = list.length ? 'contents' : 'none';
+
+    list.forEach(n => {
+      const level = NATIVE_LEVELS.find(l => l.id === n.id);
+      if (!level) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'tone';
+      btn.textContent = level.label;
+      btn.title = 'Rewrite the way a native would say it to ' + level.who +
+        (n.hotkey ? ' (' + comboLabel(n.hotkey) + ')' : '');
+      btn.dataset.level = level.id;
+      btn.disabled = busy;
+      btn.addEventListener('click', () => run('native', { level: level.id }));
+      nativeWrap.appendChild(btn);
+      nativeBtns.push(btn);
+    });
+
+    schedule();
+  }
+
   function rebuildTranslateButtons() {
     if (!translateWrap) return;
 
@@ -325,7 +381,7 @@
       btn.title = 'Translate to ' + t.language + ' (' + comboLabel(t.hotkey) + ')';
       btn.dataset.language = t.language;
       btn.disabled = busy;
-      btn.addEventListener('click', () => run('translate', t.language));
+      btn.addEventListener('click', () => run('translate', { language: t.language }));
       translateWrap.appendChild(btn);
       translateBtns.push(btn);
     });
@@ -376,6 +432,10 @@
       button:focus-visible { outline: 2px solid #2F6F62; outline-offset: 1px; }
       button:disabled { opacity: .4; cursor: default; }
       .undo { color: #2F6F62; }
+      /* Tone buttons are a scale, so they read as one group rather than five
+         unrelated actions. */
+      button.tone { color: #4A5566; letter-spacing: .04em; }
+      button.tone:hover:not(:disabled) { background: #EAF0EE; color: #24564C; }
       .note {
         display: none;
         max-width: 220px;
@@ -387,7 +447,7 @@
       }
       .bar[data-error="1"] .note { display: block; }
       .sep { width: 1px; align-self: stretch; background: #E4E8EE; margin: 2px 1px; }
-      .translate-wrap { display: contents; }
+      .translate-wrap, .native-wrap { display: contents; }
 
       .panel {
         position: fixed;
@@ -453,13 +513,25 @@
     const sep = document.createElement('span');
     sep.className = 'sep';
 
+    nativeSep = document.createElement('span');
+    nativeSep.className = 'sep';
+
+    nativeWrap = document.createElement('span');
+    nativeWrap.className = 'native-wrap';
+
     translateSep = document.createElement('span');
     translateSep.className = 'sep';
 
     translateWrap = document.createElement('span');
     translateWrap.className = 'translate-wrap';
 
-    bar.append(fixBtn, sep, rephraseBtn, translateSep, translateWrap, undoBtn, note);
+    // English actions first (Fix, Rephrase, tone), then the other languages.
+    bar.append(
+      fixBtn, sep, rephraseBtn,
+      nativeSep, nativeWrap,
+      translateSep, translateWrap,
+      undoBtn, note
+    );
 
     panel = document.createElement('div');
     panel.className = 'panel';
@@ -493,7 +565,8 @@
       keyFix: keys.fix,
       keyRephrase: keys.rephrase,
       keyUndo: keys.undo,
-      translators: cfg.translators
+      translators: cfg.translators,
+      natives: cfg.natives
     });
 
     bar.addEventListener('mousedown', e => e.preventDefault());
@@ -571,8 +644,14 @@
     bar.dataset.busy = on ? '1' : '0';
     fixBtn.disabled = rephraseBtn.disabled = undoBtn.disabled = on;
     translateBtns.forEach(btn => { btn.disabled = on; });
+    nativeBtns.forEach(btn => { btn.disabled = on; });
     fixBtn.textContent = on ? 'Working' : 'Fix';
     rephraseBtn.style.display = on ? 'none' : '';
+
+    const tones = nativeBtns.length;
+    if (nativeWrap) nativeWrap.style.display = on ? 'none' : (tones ? 'contents' : 'none');
+    if (nativeSep) nativeSep.style.display = on || !tones ? 'none' : '';
+
     if (translateWrap) translateWrap.style.display = on ? 'none' : (cfg.translators.length ? 'contents' : 'none');
     if (translateSep) translateSep.style.display = on || !cfg.translators.length ? 'none' : '';
   }
@@ -590,7 +669,8 @@
 
   // --------------------------------------------------------------- actions
 
-  async function run(mode, language) {
+  // extra carries the per-mode argument: { language } or { level }.
+  async function run(mode, extra) {
     if (busy || !activeEl) return;
 
     const value = getText(activeEl);
@@ -612,7 +692,7 @@
         type: 'rewrite',
         mode,
         text,
-        language: language || undefined
+        ...(extra || {})
       });
       if (!res?.ok) throw new Error(res?.error || 'No response.');
       if (!activeEl.isConnected) return;
@@ -696,8 +776,11 @@
     else if (combo === keys.rephrase) { e.preventDefault(); run('rephrase'); }
     else if (combo === keys.undo) { e.preventDefault(); undo(); }
     else {
+      const n = (cfg.natives || []).find(row => row.on !== false && row.hotkey === combo);
+      if (n) { e.preventDefault(); run('native', { level: n.id }); return; }
+
       const t = (cfg.translators || []).find(row => row.hotkey === combo);
-      if (t) { e.preventDefault(); run('translate', t.language); }
+      if (t) { e.preventDefault(); run('translate', { language: t.language }); }
     }
   }, true);
 })();

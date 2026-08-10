@@ -1,6 +1,6 @@
 # BidPolish
 
-A Chrome extension that adds **Fix**, **Rephrase** and **Translate** to chat boxes on Freelancer.com, WhatsApp Web and Telegram Web. Text is replaced in place — nobody leaves the chat box, and Ctrl+Z still works where the site supports it.
+A Chrome extension that adds **Fix**, **Rephrase**, **Native tone** and **Translate** to chat boxes on Freelancer.com, WhatsApp Web and Telegram Web. Text is replaced in place — nobody leaves the chat box, and Ctrl+Z still works where the site supports it.
 
 ## Setup
 
@@ -15,6 +15,11 @@ Each person does this once, on their own machine.
 |---|---|---|
 | Grammar and spelling only | Fix | `Ctrl+Alt+A` |
 | Rewrite in natural US English | Rephrase | `Ctrl+Alt+S` |
+| Native phrasing → best friend | Friend | `Ctrl+Alt+1` |
+| Native phrasing → same-level teammate | Peer | `Ctrl+Alt+2` |
+| Native phrasing → someone you don't know well | Polite | `Ctrl+Alt+3` |
+| Native phrasing → client | Client | `Ctrl+Alt+4` |
+| Native phrasing → boss | Boss | `Ctrl+Alt+5` |
 | Translate English → Spanish (casual) | Spanish | `Ctrl+Alt+D` |
 | Translate English → French (casual) | French | `Ctrl+Alt+F` |
 | Restore the original | Undo | `Ctrl+Alt+Q` |
@@ -29,7 +34,7 @@ Select part of the message to rewrite just that part. Otherwise it rewrites the 
 
 ## The instructions
 
-Fix, Rephrase and Translate are editable in the options page, and **Reset instructions** puts the defaults back.
+Fix, Rephrase, Translate and Native tone are editable in the options page, and **Reset instructions** puts the defaults back.
 
 **Fix** is deliberately strict: correct mechanical errors, change nothing else. Names, technical terms, URLs, numbers and prices pass through untouched, and a message with no errors comes back unchanged. This is the one to use on nearly every message, because it leaves the writer's own voice intact — which is what stops several people's messages converging into the same recognizable AI register.
 
@@ -41,7 +46,29 @@ Fix, Rephrase and Translate are editable in the options page, and **Reset instru
 
 **Translate** converts an English chat message into the chosen language as a **casual** chat message — everyday wording, not formal or textbook style. The prompt template uses `{{language}}`, which is replaced with the language name for that button/hotkey. English is not offered as a translate target; use Fix or Rephrase for English.
 
+**Native tone** is English in, English out — see below.
+
 If you edit the prompts, keep those guardrails.
+
+## Native tone
+
+Fix and Rephrase both aim at *correct*. Native tone aims at *native*: it compresses the message into the set phrases and idioms a fluent speaker would actually reach for, so the writing reads like someone who grew up with the language rather than someone translating into it. It cuts filler, drops words the reader can infer, and prefers the common expression over the longhand explanation.
+
+Register is the other half of the job, because the same idea is not written the same way to a friend and to a client. There are five levels, each with its own button and hotkey:
+
+| Level | Button | Hotkey | Reads like |
+|---|---|---|---|
+| Best friend | Friend | `Ctrl+Alt+1` | Relaxed and blunt. Slang and fragments fine, politeness formulas dropped. |
+| Same-level teammate | Peer | `Ctrl+Alt+2` | Casual and efficient. No ceremony, no heavy slang. |
+| Someone you don't know well | Polite | `Ctrl+Alt+3` | Natural but courteous. Asks rather than instructs, keeps please and thank you. |
+| Client | Client | `Ctrl+Alt+4` | Professional and respectful throughout. No slang at all. |
+| Boss | Boss | `Ctrl+Alt+5` | Brief and deferential. Point first, no excuses, never instructs upward. |
+
+Levels 3 to 5 are all written to read as respectful; 4 and 5 most of all, since those are the messages that cost you something if the tone lands wrong. Levels 1 and 2 trade politeness for speed, which is the correct move with people who already know you.
+
+The extension's usual guardrails still apply at every level: it never adds facts, prices, dates, timelines or commitments, never upgrades "I think I can" into "I can", and never switches you out of English.
+
+Untick a level in options to drop its button from the chat bar — someone with no boss does not need five. All five share one prompt template, where `{{audience}}` becomes who you are writing to and `{{guidance}}` becomes that level's tone rules, so edit the shared parts once and both placeholders stay in.
 
 ## Seeing what changed
 
@@ -49,7 +76,7 @@ After a rewrite, a panel appears above the message box showing the original and 
 
 ## Fast mode
 
-On by default. It runs Fix with minimal reasoning and Rephrase with low reasoning rather than letting the model deliberate, which is where most of the wait on a short message comes from. Turn it off in options if corrections start missing things — the toggle is per person, so someone writing longer or more technical messages can run without it.
+On by default. It runs Fix and Translate with minimal reasoning, and Rephrase and Native tone with low reasoning, rather than letting the model deliberate — which is where most of the wait on a short message comes from. Native tone gets the larger budget because picking the right idiom for the right reader is a judgement call, not a lookup. Turn it off in options if corrections start missing things — the toggle is per person, so someone writing longer or more technical messages can run without it.
 
 ## Where settings are stored
 
@@ -57,7 +84,7 @@ On by default. It runs Fix with minimal reasoning and Rephrase with low reasonin
 
 ## Multiple API keys
 
-You can store up to five keys (2–3 is enough for most teams). On Fix, Rephrase, or model listing, the extension starts with the last key that worked. If Gemini returns a quota, rate-limit, or invalid-key error, it tries the next key in the list without you changing anything. Non-quota failures (bad model name, empty response, etc.) are not retried on another key — those need a settings fix.
+You can store up to five keys (2–3 is enough for most teams). On any rewrite or model listing, the extension starts with the last key that worked. If Gemini returns a quota, rate-limit, or invalid-key error, it tries the next key in the list without you changing anything. Non-quota failures (bad model name, empty response, etc.) are not retried on another key — those need a settings fix.
 
 ## Adjusting scope
 

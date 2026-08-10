@@ -115,8 +115,33 @@
     font-weight: 400;
   }
   .lang-row .remove:hover { color: var(--warn); border-color: var(--warn); }
+  .tone-list { display: flex; flex-direction: column; gap: 10px; }
+  .tone-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(140px, .9fr);
+    gap: 8px;
+    align-items: center;
+  }
+  .tone-row .who {
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+    margin: 0;
+    cursor: pointer;
+  }
+  .tone-row .who input {
+    width: auto;
+    flex: none;
+    margin: 3px 0 0;
+    padding: 0;
+    accent-color: var(--accent);
+  }
+  .tone-row .name { font-weight: 500; display: block; }
+  .tone-row .desc { color: var(--muted); font-size: 12.5px; display: block; }
+  .tone-row input.key { max-width: none; width: 100%; }
   @media (max-width: 560px) {
     .lang-row { grid-template-columns: 1fr; }
+    .tone-row { grid-template-columns: 1fr; }
   }
   .toggle {
     display: flex;
@@ -176,7 +201,7 @@
 <body>
 <main>
   <h1>BidPolish</h1>
-  <p class="sub">Fix, Rephrase and Translate, in the chat box.</p>
+  <p class="sub">Fix, Rephrase, Native tone and Translate, in the chat box.</p>
 
   <fieldset>
     <legend>Gemini</legend>
@@ -255,6 +280,17 @@
   </fieldset>
 
   <fieldset>
+    <legend>Native tone</legend>
+    <p class="hint" style="margin:-6px 0 16px">
+      English in, English out. Rewrites the message into the compressed, idiomatic phrasing
+      a native speaker would actually use &mdash; pitched at whoever is reading it.
+      Untick a level to drop its button from the chat bar.
+    </p>
+
+    <div id="natives" class="tone-list"></div>
+  </fieldset>
+
+  <fieldset>
     <legend>Feedback</legend>
 
     <div class="toggle">
@@ -294,6 +330,16 @@
       <span class="lab">Translate &mdash; English into casual {{language}}</span>
       <textarea id="translatePrompt" spellcheck="false"></textarea>
       <span class="hint">Source is English. Keep the output casual. Use <code>{{language}}</code> for the target language name. Reset restores the default template.</span>
+    </label>
+
+    <label>
+      <span class="lab">Native tone &mdash; English into native phrasing</span>
+      <textarea id="nativePrompt" spellcheck="false"></textarea>
+      <span class="hint">
+        One template for all five levels. <code>{{audience}}</code> becomes who you are writing to and
+        <code>{{guidance}}</code> becomes that level's tone rules, so edit the shared parts here and leave
+        both placeholders in. Keep the line about never adding facts or commitments.
+      </span>
     </label>
   </fieldset>
 

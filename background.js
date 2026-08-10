@@ -18,7 +18,10 @@ function tidy(text) {
 const THINKING_LEVEL = {
   fix: 'MINIMAL',
   rephrase: 'LOW',
-  translate: 'MINIMAL'
+  translate: 'MINIMAL',
+  // Picking the right idiom for the right reader is a judgement call, so this
+  // one gets the same budget as Rephrase rather than the minimum.
+  native: 'LOW'
 };
 
 function isRetryableKeyError(status, data) {
@@ -29,18 +32,29 @@ function isRetryableKeyError(status, data) {
     .test(msg + ' ' + code);
 }
 
-function systemPromptFor(settings, mode, language) {
-  if (mode === 'rephrase') return settings.rephrasePrompt;
-  if (mode === 'translate') {
-    const lang = String(language || '').trim() || 'Spanish';
+// job: { mode, text, language, level }
+function systemPromptFor(settings, job) {
+  if (job.mode === 'rephrase') return settings.rephrasePrompt;
+
+  if (job.mode === 'translate') {
+    const lang = String(job.language || '').trim() || 'Spanish';
     const template = settings.translatePrompt || DEFAULT_TRANSLATE_PROMPT;
     return template.split('{{language}}').join(lang);
   }
+
+  if (job.mode === 'native') {
+    const level = nativeLevel(job.level) || NATIVE_LEVELS[0];
+    const template = settings.nativePrompt || DEFAULT_NATIVE_PROMPT;
+    return template
+      .split('{{audience}}').join(level.audience)
+      .split('{{guidance}}').join(level.guidance);
+  }
+
   return settings.fixPrompt;
 }
 
-async function callGenerate(apiKey, settings, mode, text, withThinking, language) {
-  const system = systemPromptFor(settings, mode, language);
+async function callGenerate(apiKey, settings, job, withThinking) {
+  const system = systemPromptFor(settings, job);
 
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
     encodeURIComponent(settings.model) + ':generateContent';
@@ -49,7 +63,7 @@ async function callGenerate(apiKey, settings, mode, text, withThinking, language
   const generationConfig = { maxOutputTokens: 2048 };
   if (withThinking && settings.fastMode !== false) {
     generationConfig.thinkingConfig = {
-      thinkingLevel: THINKING_LEVEL[mode] || 'MINIMAL'
+      thinkingLevel: THINKING_LEVEL[job.mode] || 'MINIMAL'
     };
   }
 
@@ -61,7 +75,7 @@ async function callGenerate(apiKey, settings, mode, text, withThinking, language
     },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text }] }],
+      contents: [{ role: 'user', parts: [{ text: job.text }] }],
       generationConfig
     })
   });
@@ -72,7 +86,7 @@ async function callGenerate(apiKey, settings, mode, text, withThinking, language
     // Models outside the 3.x line reject thinkingLevel. Retry once without it
     // on the same key rather than rotating.
     if (withThinking && res.status === 400 && !isRetryableKeyError(res.status, data)) {
-      return callGenerate(apiKey, settings, mode, text, false, language);
+      return callGenerate(apiKey, settings, job, false);
     }
 
     const err = new Error(data?.error?.message || ('Gemini returned HTTP ' + res.status));
@@ -86,16 +100,19 @@ async function callGenerate(apiKey, settings, mode, text, withThinking, language
   return out;
 }
 
-async function rewrite(mode, text, language) {
+async function rewrite(job) {
   const settings = await loadSettings();
   const keys = normalizeApiKeys(settings);
   if (!keys.length) {
     throw new Error('No API key set. Open the extension options.');
   }
 
-  if (mode === 'translate') {
-    const lang = String(language || '').trim();
-    if (!lang) throw new Error('No target language set. Open the extension options.');
+  if (job.mode === 'translate' && !String(job.language || '').trim()) {
+    throw new Error('No target language set. Open the extension options.');
+  }
+
+  if (job.mode === 'native' && !nativeLevel(job.level)) {
+    throw new Error('Unknown tone level. Open the extension options.');
   }
 
   const start = Math.min(settings.apiKeyIndex || 0, keys.length - 1);
@@ -104,7 +121,7 @@ async function rewrite(mode, text, language) {
   for (let i = 0; i < keys.length; i++) {
     const idx = (start + i) % keys.length;
     try {
-      const out = await callGenerate(keys[idx], settings, mode, text, true, language);
+      const out = await callGenerate(keys[idx], settings, job, true);
       if (idx !== settings.apiKeyIndex) {
         await chrome.storage.local.set({ apiKeyIndex: idx });
       }
@@ -172,7 +189,7 @@ async function listModels() {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'rewrite') {
-    rewrite(msg.mode, msg.text, msg.language)
+    rewrite({ mode: msg.mode, text: msg.text, language: msg.language, level: msg.level })
       .then(text => sendResponse({ ok: true, text }))
       .catch(err => sendResponse({ ok: false, error: err.message || String(err) }));
     return true; // keep the message channel open for the async reply

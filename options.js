@@ -1,6 +1,6 @@
 'use strict';
 
-const TEXT_FIELDS = ['model', 'fixPrompt', 'rephrasePrompt', 'translatePrompt'];
+const TEXT_FIELDS = ['model', 'fixPrompt', 'rephrasePrompt', 'translatePrompt', 'nativePrompt'];
 const BOOL_FIELDS = ['fastMode', 'showFeedback'];
 const NUM_FIELDS = ['feedbackSeconds'];
 const KEY_FIELDS = ['keyFix', 'keyRephrase', 'keyUndo'];
@@ -8,6 +8,7 @@ const $ = id => document.getElementById(id);
 const status = $('status');
 const keysRoot = $('apiKeys');
 const translatorsRoot = $('translators');
+const nativesRoot = $('natives');
 
 const FALLBACK_HOTKEYS = [
   'Ctrl+Alt+KeyD',
@@ -92,13 +93,12 @@ function translatorRows() {
   return [...translatorsRoot.querySelectorAll('.lang-row')];
 }
 
+// Every hotkey box on the page carries class "key" — the fixed actions, the
+// translator rows and the tone rows — so one sweep covers all of them.
 function reservedCombos(exceptInput) {
-  const used = new Set(KEY_FIELDS.map(id => $(id).dataset.combo).filter(Boolean));
-  translatorRows().forEach(row => {
-    const hotkey = row.querySelector('input.key');
-    if (hotkey && hotkey !== exceptInput && hotkey.dataset.combo) {
-      used.add(hotkey.dataset.combo);
-    }
+  const used = new Set();
+  document.querySelectorAll('input.key').forEach(el => {
+    if (el !== exceptInput && el.dataset.combo) used.add(el.dataset.combo);
   });
   return used;
 }
@@ -156,6 +156,69 @@ function bindHotkeyInput(input) {
   });
   input.addEventListener('focus', () => { input.value = 'Press a combination…'; });
   input.addEventListener('blur', () => { input.value = comboLabel(input.dataset.combo); });
+}
+
+function nativeRows() {
+  return [...nativesRoot.querySelectorAll('.tone-row')];
+}
+
+// The five levels are fixed — you can turn one off or rebind it, not add a sixth.
+function addNativeRow(level, entry) {
+  const row = document.createElement('div');
+  row.className = 'tone-row';
+  row.dataset.id = level.id;
+
+  const who = document.createElement('label');
+  who.className = 'who';
+
+  const on = document.createElement('input');
+  on.type = 'checkbox';
+  on.className = 'on';
+  on.checked = !entry || entry.on !== false;
+
+  const text = document.createElement('span');
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = level.title;
+  const desc = document.createElement('span');
+  desc.className = 'desc';
+  desc.textContent = level.blurb;
+  text.append(name, desc);
+  who.append(on, text);
+
+  const hotkeyInput = document.createElement('input');
+  hotkeyInput.className = 'key';
+  hotkeyInput.type = 'text';
+  hotkeyInput.readOnly = true;
+  hotkeyInput.dataset.combo = (entry && entry.hotkey) || level.hotkey;
+  hotkeyInput.value = comboLabel(hotkeyInput.dataset.combo);
+  bindHotkeyInput(hotkeyInput);
+
+  row.append(who, hotkeyInput);
+  nativesRoot.appendChild(row);
+}
+
+function renderNatives(list) {
+  nativesRoot.replaceChildren();
+  const saved = new Map((list || []).map(n => [n.id, n]));
+  NATIVE_LEVELS.forEach(level => addNativeRow(level, saved.get(level.id)));
+}
+
+function readNativesFromUi() {
+  // The three fixed actions win a clash; a tone level just loses its shortcut
+  // rather than its button.
+  const taken = new Set(KEY_FIELDS.map(id => $(id).dataset.combo).filter(Boolean));
+
+  return nativeRows().map(row => {
+    let hotkey = (row.querySelector('input.key').dataset.combo || '').trim();
+    if (taken.has(hotkey)) hotkey = '';
+    if (hotkey) taken.add(hotkey);
+    return {
+      id: row.dataset.id,
+      hotkey,
+      on: row.querySelector('input.on').checked
+    };
+  });
 }
 
 function addTranslatorRow(entry) {
@@ -221,6 +284,11 @@ function readTranslatorsFromUi() {
   const out = [];
   const seenLang = new Set();
   const seenHotkey = new Set();
+  // Hotkeys already claimed by the fixed actions or a tone level.
+  const claimed = new Set([
+    ...KEY_FIELDS.map(id => $(id).dataset.combo),
+    ...nativeRows().map(row => row.querySelector('input.key').dataset.combo)
+  ].filter(Boolean));
 
   for (const row of translatorRows()) {
     const sel = row.querySelector('select');
@@ -236,7 +304,7 @@ function readTranslatorsFromUi() {
     if (/^english$/i.test(language)) continue;
     const langKey = language.toLowerCase();
     if (seenLang.has(langKey) || seenHotkey.has(hotkey)) continue;
-    if (KEY_FIELDS.some(id => $(id).dataset.combo === hotkey)) continue;
+    if (claimed.has(hotkey)) continue;
 
     seenLang.add(langKey);
     seenHotkey.add(hotkey);
@@ -258,6 +326,7 @@ async function load() {
     el.value = comboLabel(el.dataset.combo);
   });
   renderKeys(normalizeApiKeys(data));
+  renderNatives(normalizeNatives(data));
   renderTranslators(normalizeTranslators(data));
 }
 
@@ -274,6 +343,7 @@ async function save(quiet) {
 
   out.apiKeys = readKeysFromUi();
   out.apiKey = '';
+  out.natives = normalizeNatives({ natives: readNativesFromUi() });
   out.translators = normalizeTranslators({ translators: readTranslatorsFromUi() });
 
   // Keep the last working key if it is still in the list.
@@ -288,8 +358,10 @@ async function save(quiet) {
   if (!out.fixPrompt) out.fixPrompt = DEFAULTS.fixPrompt;
   if (!out.rephrasePrompt) out.rephrasePrompt = DEFAULTS.rephrasePrompt;
   if (!out.translatePrompt) out.translatePrompt = DEFAULTS.translatePrompt;
+  if (!out.nativePrompt) out.nativePrompt = DEFAULTS.nativePrompt;
   TEXT_FIELDS.forEach(k => { $(k).value = out[k]; });
   renderKeys(out.apiKeys.length ? out.apiKeys : ['']);
+  renderNatives(out.natives);
   renderTranslators(out.translators);
 
   // Local only: these settings stay on this browser profile.
@@ -297,10 +369,11 @@ async function save(quiet) {
   if (!quiet) {
     const n = out.apiKeys.length;
     const t = out.translators.length;
+    const v = out.natives.filter(x => x.on).length;
     say(
       n
-        ? `Saved (${n} key${n === 1 ? '' : 's'}, ${t} language${t === 1 ? '' : 's'}).`
-        : 'Saved. Add at least one API key to use Fix/Rephrase/Translate.',
+        ? `Saved (${n} key${n === 1 ? '' : 's'}, ${t} language${t === 1 ? '' : 's'}, ${v} tone${v === 1 ? '' : 's'}).`
+        : 'Saved. Add at least one API key to use any of the buttons.',
       n ? 'ok' : 'bad'
     );
     setTimeout(() => { if (status.dataset.tone === 'ok') say(''); }, 2500);
@@ -388,6 +461,7 @@ function reset() {
   $('fixPrompt').value = DEFAULTS.fixPrompt;
   $('rephrasePrompt').value = DEFAULTS.rephrasePrompt;
   $('translatePrompt').value = DEFAULTS.translatePrompt;
+  $('nativePrompt').value = DEFAULTS.nativePrompt;
   say('Instructions restored. Save to keep them.');
 }
 
