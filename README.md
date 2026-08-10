@@ -1,6 +1,6 @@
 # BidPolish
 
-A Chrome extension that adds **Fix** and **Rephrase** to any `<textarea>` on Freelancer.com. Text is replaced in place — nobody leaves the chat box, and Ctrl+Z still works.
+A Chrome extension that adds **Fix**, **Rephrase** and **Translate** to any `<textarea>` on Freelancer.com. Text is replaced in place — nobody leaves the chat box, and Ctrl+Z still works.
 
 ## Setup
 
@@ -15,17 +15,21 @@ Each person does this once, on their own machine.
 |---|---|---|
 | Grammar and spelling only | Fix | `Ctrl+Alt+A` |
 | Rewrite in natural US English | Rephrase | `Ctrl+Alt+S` |
+| Translate English → Spanish (casual) | Spanish | `Ctrl+Alt+D` |
+| Translate English → French (casual) | French | `Ctrl+Alt+F` |
 | Restore the original | Undo | `Ctrl+Alt+Q` |
 
 Hotkeys are editable in options: click a box and press the combination you want. They are stored as physical key positions, so they keep working on non-US keyboard layouts.
+
+In **Translate**, add up to six **non-English** target languages. The source is English; Fix and Rephrase already cover English writing. Each language gets its own button and hotkey. Output is casual chat phrasing, not formal translation.
 
 Chrome reserves some combinations for itself, and a page cannot intercept a browser-level shortcut. If a hotkey does nothing in a chat box, the browser is taking it — pick another combination rather than assuming the extension is broken. The `Ctrl+Alt` range is largely free, which is why the defaults live there.
 
 Select part of the message to rewrite just that part. Otherwise it rewrites the whole box.
 
-## The two instructions
+## The instructions
 
-Both are editable in the options page, and **Reset instructions** puts the defaults back.
+Fix, Rephrase and Translate are editable in the options page, and **Reset instructions** puts the defaults back.
 
 **Fix** is deliberately strict: correct mechanical errors, change nothing else. Names, technical terms, URLs, numbers and prices pass through untouched, and a message with no errors comes back unchanged. This is the one to use on nearly every message, because it leaves the writer's own voice intact — which is what stops several people's messages converging into the same recognizable AI register.
 
@@ -35,7 +39,9 @@ Both are editable in the options page, and **Reset instructions** puts the defau
 - *Keep the original's level of certainty.* Without this, "I think I can do this" becomes "I can do this", which is a promise nobody made.
 - *No enthusiasm words, exclamation marks, emoji or em dashes.* These are the tells clients read as AI-written.
 
-If you edit the prompts, keep those three.
+**Translate** converts an English chat message into the chosen language as a **casual** chat message — everyday wording, not formal or textbook style. The prompt template uses `{{language}}`, which is replaced with the language name for that button/hotkey. English is not offered as a translate target; use Fix or Rephrase for English.
+
+If you edit the prompts, keep those guardrails.
 
 ## Seeing what changed
 

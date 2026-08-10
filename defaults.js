@@ -33,7 +33,65 @@ If the message already reads naturally, return it unchanged.
 
 Return only the message text. No commentary, no explanation, no quotation marks, no markdown.`;
 
+const DEFAULT_TRANSLATE_PROMPT =
+`Translate a short English chat message that a freelancer is about to send to a client on a freelancing marketplace into casual {{language}}.
+
+The source is English. Write natural, everyday {{language}} — the way people actually message on a freelancing site, not formal, literary or textbook language. Prefer common words and spoken phrasing. Keep contractions and a relaxed tone where that language uses them.
+
+Keep it a chat message: casual, conversational, direct, and about the same length. Do not turn it into a formal email, business letter or polished marketing copy. Do not add a greeting or sign-off that was not already there.
+
+Preserve the meaning exactly. Never add facts, prices, dates, timelines, deliverables, qualifications or commitments that are not already in the original. If something is vague, leave it vague. Keep questions as questions. Keep the original's level of certainty.
+
+Leave these exactly as written when they are proper nouns or identifiers: names, technical terms, file names, URLs, numbers, prices, dates and any code. Translate surrounding prose only.
+
+Return only the translated message text. No commentary, no explanation, no quotation marks, no markdown.`;
+
 const MAX_API_KEYS = 5;
+const MAX_TRANSLATORS = 6;
+
+/** Target languages only — English is handled by Fix / Rephrase, not Translate. */
+const LANGUAGE_OPTIONS = [
+  'Spanish',
+  'French',
+  'German',
+  'Portuguese',
+  'Italian',
+  'Dutch',
+  'Polish',
+  'Ukrainian',
+  'Russian',
+  'Turkish',
+  'Arabic',
+  'Hindi',
+  'Bengali',
+  'Indonesian',
+  'Malay',
+  'Vietnamese',
+  'Thai',
+  'Chinese (Simplified)',
+  'Chinese (Traditional)',
+  'Japanese',
+  'Korean'
+];
+
+const DEFAULT_TRANSLATORS = [
+  { language: 'Spanish', hotkey: 'Ctrl+Alt+KeyD' },
+  { language: 'French', hotkey: 'Ctrl+Alt+KeyF' }
+];
+
+/** Older prompt — migrate installs still on this text to the casual version. */
+const LEGACY_TRANSLATE_PROMPT =
+`Translate a short chat message that a freelancer is about to send to a client on a freelancing marketplace into {{language}}.
+
+Keep it a chat message: conversational, direct, and about the same length. Do not turn it into a formal email or add a greeting or sign-off that was not already there.
+
+Preserve the meaning exactly. Never add facts, prices, dates, timelines, deliverables, qualifications or commitments that are not already in the original. If something is vague, leave it vague. Keep questions as questions. Keep the original's level of certainty.
+
+Leave these exactly as written when they are proper nouns or identifiers: names, technical terms, file names, URLs, numbers, prices, dates and any code. Translate surrounding prose only.
+
+If the message is already in {{language}}, return it unchanged.
+
+Return only the translated message text. No commentary, no explanation, no quotation marks, no markdown.`;
 
 const DEFAULTS = {
   // Prefer apiKeys. apiKey is kept only so older installs migrate cleanly.
@@ -45,10 +103,12 @@ const DEFAULTS = {
   keyFix: 'Ctrl+Alt+KeyA',
   keyRephrase: 'Ctrl+Alt+KeyS',
   keyUndo: 'Ctrl+Alt+KeyQ',
+  translators: DEFAULT_TRANSLATORS,
   showFeedback: true,
   feedbackSeconds: 6,
   fixPrompt: DEFAULT_FIX_PROMPT,
-  rephrasePrompt: DEFAULT_REPHRASE_PROMPT
+  rephrasePrompt: DEFAULT_REPHRASE_PROMPT,
+  translatePrompt: DEFAULT_TRANSLATE_PROMPT
 };
 
 /** Build a stable combo string from a keyboard event. */
@@ -87,6 +147,38 @@ function normalizeApiKeys(settings) {
   return out;
 }
 
+/** Short button label for a language name (e.g. "Chinese (Simplified)" → "Chinese"). */
+function languageLabel(language) {
+  const name = String(language || '').trim();
+  if (!name) return 'Lang';
+  const base = name.split(/[(/]/)[0].trim();
+  return base.length > 10 ? base.slice(0, 9) + '…' : base;
+}
+
+/** Clean translator rows: language + hotkey, deduped, capped. English is not a target. */
+function normalizeTranslators(settings) {
+  const raw = Array.isArray(settings?.translators) ? settings.translators : null;
+  const seenLang = new Set();
+  const seenHotkey = new Set();
+  const out = [];
+
+  for (const row of raw || DEFAULT_TRANSLATORS) {
+    const language = String(row?.language || '').trim();
+    const hotkey = String(row?.hotkey || '').trim();
+    if (!language || !hotkey) continue;
+    // Fix / Rephrase already cover English — translate is English → other languages.
+    if (/^english$/i.test(language)) continue;
+    const langKey = language.toLowerCase();
+    if (seenLang.has(langKey) || seenHotkey.has(hotkey)) continue;
+    seenLang.add(langKey);
+    seenHotkey.add(hotkey);
+    out.push({ language, hotkey });
+    if (out.length >= MAX_TRANSLATORS) break;
+  }
+
+  return out.length ? out : DEFAULT_TRANSLATORS.map(t => ({ language: t.language, hotkey: t.hotkey }));
+}
+
 /**
  * Settings live in chrome.storage.local, which is tied to this browser profile
  * and never leaves the machine. chrome.storage.sync would push the API key to
@@ -101,38 +193,46 @@ async function loadSettings() {
     if (synced.apiKey || (synced.apiKeys && synced.apiKeys.length)) {
       await chrome.storage.local.set(synced);
       await chrome.storage.sync.clear();
-      return migrateApiKeys(synced);
+      return migrateSettings(synced);
     }
   }
 
-  return migrateApiKeys(local);
+  return migrateSettings(local);
 }
 
 /** Fold the legacy single apiKey into apiKeys once, then drop the old field. */
-async function migrateApiKeys(settings) {
+async function migrateSettings(settings) {
   const keys = normalizeApiKeys(settings);
+  const translators = normalizeTranslators(settings);
+  const translatePrompt =
+    !settings.translatePrompt || settings.translatePrompt === LEGACY_TRANSLATE_PROMPT
+      ? DEFAULT_TRANSLATE_PROMPT
+      : settings.translatePrompt;
+
   const needsWrite =
     settings.apiKey ||
-    JSON.stringify(settings.apiKeys || []) !== JSON.stringify(keys);
+    JSON.stringify(settings.apiKeys || []) !== JSON.stringify(keys) ||
+    JSON.stringify(settings.translators || []) !== JSON.stringify(translators) ||
+    settings.translatePrompt !== translatePrompt;
+
+  const next = {
+    ...settings,
+    apiKeys: keys,
+    apiKey: '',
+    apiKeyIndex: Math.min(Math.max(0, Number(settings.apiKeyIndex) || 0), Math.max(0, keys.length - 1)),
+    translators,
+    translatePrompt
+  };
 
   if (needsWrite) {
-    const next = {
-      ...settings,
-      apiKeys: keys,
-      apiKey: '',
-      apiKeyIndex: Math.min(Math.max(0, Number(settings.apiKeyIndex) || 0), Math.max(0, keys.length - 1))
-    };
     await chrome.storage.local.set({
       apiKeys: next.apiKeys,
       apiKey: '',
-      apiKeyIndex: next.apiKeyIndex
+      apiKeyIndex: next.apiKeyIndex,
+      translators: next.translators,
+      translatePrompt: next.translatePrompt
     });
-    return next;
   }
 
-  return {
-    ...settings,
-    apiKeys: keys,
-    apiKeyIndex: Math.min(Math.max(0, Number(settings.apiKeyIndex) || 0), Math.max(0, keys.length - 1))
-  };
+  return next;
 }

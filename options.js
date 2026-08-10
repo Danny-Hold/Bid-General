@@ -1,12 +1,22 @@
 'use strict';
 
-const TEXT_FIELDS = ['model', 'fixPrompt', 'rephrasePrompt'];
+const TEXT_FIELDS = ['model', 'fixPrompt', 'rephrasePrompt', 'translatePrompt'];
 const BOOL_FIELDS = ['fastMode', 'showFeedback'];
 const NUM_FIELDS = ['feedbackSeconds'];
 const KEY_FIELDS = ['keyFix', 'keyRephrase', 'keyUndo'];
 const $ = id => document.getElementById(id);
 const status = $('status');
 const keysRoot = $('apiKeys');
+const translatorsRoot = $('translators');
+
+const FALLBACK_HOTKEYS = [
+  'Ctrl+Alt+KeyD',
+  'Ctrl+Alt+KeyF',
+  'Ctrl+Alt+KeyG',
+  'Ctrl+Alt+KeyH',
+  'Ctrl+Alt+KeyJ',
+  'Ctrl+Alt+KeyK'
+];
 
 function say(msg, tone) {
   status.textContent = msg;
@@ -78,6 +88,165 @@ function renderKeys(keys) {
   syncKeyControls();
 }
 
+function translatorRows() {
+  return [...translatorsRoot.querySelectorAll('.lang-row')];
+}
+
+function reservedCombos(exceptInput) {
+  const used = new Set(KEY_FIELDS.map(id => $(id).dataset.combo).filter(Boolean));
+  translatorRows().forEach(row => {
+    const hotkey = row.querySelector('input.key');
+    if (hotkey && hotkey !== exceptInput && hotkey.dataset.combo) {
+      used.add(hotkey.dataset.combo);
+    }
+  });
+  return used;
+}
+
+function nextFreeHotkey() {
+  const used = reservedCombos(null);
+  return FALLBACK_HOTKEYS.find(h => !used.has(h)) || '';
+}
+
+function fillLanguageSelect(sel, language) {
+  sel.replaceChildren();
+  LANGUAGE_OPTIONS.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  const custom = document.createElement('option');
+  custom.value = '__custom__';
+  custom.textContent = 'Custom…';
+  sel.appendChild(custom);
+
+  if (LANGUAGE_OPTIONS.includes(language)) {
+    sel.value = language;
+  } else {
+    sel.value = '__custom__';
+  }
+}
+
+function syncTranslatorControls() {
+  const rows = translatorRows();
+  $('addTranslator').disabled = rows.length >= MAX_TRANSLATORS;
+  rows.forEach(row => {
+    const btn = row.querySelector('.remove');
+    if (btn) btn.disabled = false;
+  });
+}
+
+function bindHotkeyInput(input) {
+  input.addEventListener('keydown', e => {
+    e.preventDefault();
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+    if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+      say('Use at least Ctrl, Alt or Cmd, or it will fire while typing.', 'bad');
+      return;
+    }
+    const combo = comboOf(e);
+    if (reservedCombos(input).has(combo)) {
+      say('That combination is already used by another action.', 'bad');
+      return;
+    }
+    input.dataset.combo = combo;
+    input.value = comboLabel(combo);
+    say('Set. Save to keep it.');
+  });
+  input.addEventListener('focus', () => { input.value = 'Press a combination…'; });
+  input.addEventListener('blur', () => { input.value = comboLabel(input.dataset.combo); });
+}
+
+function addTranslatorRow(entry) {
+  if (translatorRows().length >= MAX_TRANSLATORS) return;
+
+  const language = (entry && entry.language) || 'Spanish';
+  const hotkey = (entry && entry.hotkey) || nextFreeHotkey() || 'Ctrl+Alt+KeyD';
+  const isCustom = language && !LANGUAGE_OPTIONS.includes(language);
+
+  const row = document.createElement('div');
+  row.className = 'lang-row';
+
+  const langWrap = document.createElement('div');
+  const sel = document.createElement('select');
+  fillLanguageSelect(sel, language);
+
+  const custom = document.createElement('input');
+  custom.type = 'text';
+  custom.className = 'lang-custom';
+  custom.placeholder = 'Language name';
+  custom.spellcheck = true;
+  custom.value = isCustom ? language : '';
+  custom.classList.toggle('hidden', !isCustom);
+
+  sel.addEventListener('change', () => {
+    const customMode = sel.value === '__custom__';
+    custom.classList.toggle('hidden', !customMode);
+    if (customMode) custom.focus();
+  });
+
+  langWrap.append(sel, custom);
+
+  const hotkeyInput = document.createElement('input');
+  hotkeyInput.className = 'key';
+  hotkeyInput.type = 'text';
+  hotkeyInput.readOnly = true;
+  hotkeyInput.dataset.combo = hotkey;
+  hotkeyInput.value = comboLabel(hotkey);
+  bindHotkeyInput(hotkeyInput);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'remove';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', () => {
+    row.remove();
+    syncTranslatorControls();
+  });
+
+  row.append(langWrap, hotkeyInput, remove);
+  translatorsRoot.appendChild(row);
+  syncTranslatorControls();
+}
+
+function renderTranslators(list) {
+  translatorsRoot.replaceChildren();
+  const rows = list && list.length ? list : DEFAULT_TRANSLATORS;
+  rows.slice(0, MAX_TRANSLATORS).forEach(addTranslatorRow);
+  syncTranslatorControls();
+}
+
+function readTranslatorsFromUi() {
+  const out = [];
+  const seenLang = new Set();
+  const seenHotkey = new Set();
+
+  for (const row of translatorRows()) {
+    const sel = row.querySelector('select');
+    const custom = row.querySelector('input.lang-custom');
+    const hotkeyEl = row.querySelector('input.key');
+    const language = (sel.value === '__custom__'
+      ? (custom.value || '').trim()
+      : sel.value).trim();
+    const hotkey = (hotkeyEl.dataset.combo || '').trim();
+    if (!language || !hotkey) continue;
+
+    // Fix / Rephrase already cover English.
+    if (/^english$/i.test(language)) continue;
+    const langKey = language.toLowerCase();
+    if (seenLang.has(langKey) || seenHotkey.has(hotkey)) continue;
+    if (KEY_FIELDS.some(id => $(id).dataset.combo === hotkey)) continue;
+
+    seenLang.add(langKey);
+    seenHotkey.add(hotkey);
+    out.push({ language, hotkey });
+    if (out.length >= MAX_TRANSLATORS) break;
+  }
+
+  return out;
+}
+
 async function load() {
   const data = await loadSettings();
   TEXT_FIELDS.forEach(k => { $(k).value = data[k]; });
@@ -89,6 +258,7 @@ async function load() {
     el.value = comboLabel(el.dataset.combo);
   });
   renderKeys(normalizeApiKeys(data));
+  renderTranslators(normalizeTranslators(data));
 }
 
 async function save(quiet) {
@@ -104,6 +274,7 @@ async function save(quiet) {
 
   out.apiKeys = readKeysFromUi();
   out.apiKey = '';
+  out.translators = normalizeTranslators({ translators: readTranslatorsFromUi() });
 
   // Keep the last working key if it is still in the list.
   const prev = await chrome.storage.local.get(['apiKeys', 'apiKey', 'apiKeyIndex']);
@@ -116,14 +287,22 @@ async function save(quiet) {
   if (!out.model) out.model = DEFAULTS.model;
   if (!out.fixPrompt) out.fixPrompt = DEFAULTS.fixPrompt;
   if (!out.rephrasePrompt) out.rephrasePrompt = DEFAULTS.rephrasePrompt;
+  if (!out.translatePrompt) out.translatePrompt = DEFAULTS.translatePrompt;
   TEXT_FIELDS.forEach(k => { $(k).value = out[k]; });
   renderKeys(out.apiKeys.length ? out.apiKeys : ['']);
+  renderTranslators(out.translators);
 
   // Local only: these settings stay on this browser profile.
   await chrome.storage.local.set(out);
   if (!quiet) {
     const n = out.apiKeys.length;
-    say(n ? `Saved (${n} key${n === 1 ? '' : 's'}).` : 'Saved. Add at least one API key to use Fix/Rephrase.', n ? 'ok' : 'bad');
+    const t = out.translators.length;
+    say(
+      n
+        ? `Saved (${n} key${n === 1 ? '' : 's'}, ${t} language${t === 1 ? '' : 's'}).`
+        : 'Saved. Add at least one API key to use Fix/Rephrase/Translate.',
+      n ? 'ok' : 'bad'
+    );
     setTimeout(() => { if (status.dataset.tone === 'ok') say(''); }, 2500);
   }
 }
@@ -208,6 +387,7 @@ async function loadModels() {
 function reset() {
   $('fixPrompt').value = DEFAULTS.fixPrompt;
   $('rephrasePrompt').value = DEFAULTS.rephrasePrompt;
+  $('translatePrompt').value = DEFAULTS.translatePrompt;
   say('Instructions restored. Save to keep them.');
 }
 
@@ -220,6 +400,9 @@ $('addKey').addEventListener('click', () => {
   addKeyRow('');
   const inputs = keysRoot.querySelectorAll('input');
   inputs[inputs.length - 1]?.focus();
+});
+$('addTranslator').addEventListener('click', () => {
+  addTranslatorRow({ language: 'Portuguese', hotkey: nextFreeHotkey() });
 });
 
 // Capture a key combination instead of typing one.
@@ -234,8 +417,7 @@ KEY_FIELDS.forEach(id => {
       return;
     }
     const combo = comboOf(e);
-    const clash = KEY_FIELDS.find(o => o !== id && $(o).dataset.combo === combo);
-    if (clash) {
+    if (reservedCombos(el).has(combo)) {
       say('That combination is already used by another action.', 'bad');
       return;
     }

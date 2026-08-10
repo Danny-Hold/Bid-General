@@ -29,9 +29,20 @@
       .join(' + ');
   }
 
+  function languageLabel(language) {
+    const name = String(language || '').trim();
+    if (!name) return 'Lang';
+    const base = name.split(/[(/]/)[0].trim();
+    return base.length > 10 ? base.slice(0, 9) + '…' : base;
+  }
+
   const cfg = {
     showFeedback: true,
-    feedbackSeconds: 6
+    feedbackSeconds: 6,
+    translators: [
+      { language: 'Spanish', hotkey: 'Ctrl+Alt+KeyD' },
+      { language: 'French', hotkey: 'Ctrl+Alt+KeyF' }
+    ]
   };
 
   function applySettings(s) {
@@ -40,14 +51,26 @@
     if (s.keyUndo) keys.undo = s.keyUndo;
     if (typeof s.showFeedback === 'boolean') cfg.showFeedback = s.showFeedback;
     if (Number(s.feedbackSeconds) > 0) cfg.feedbackSeconds = Number(s.feedbackSeconds);
+    if (Array.isArray(s.translators)) {
+      cfg.translators = s.translators
+        .map(t => ({
+          language: String(t?.language || '').trim(),
+          hotkey: String(t?.hotkey || '').trim()
+        }))
+        .filter(t => t.language && t.hotkey && !/^english$/i.test(t.language));
+    }
 
     if (!fixBtn) return;
     fixBtn.title = 'Correct grammar and spelling only (' + comboLabel(keys.fix) + ')';
     rephraseBtn.title = 'Rewrite in natural US business English (' + comboLabel(keys.rephrase) + ')';
     undoBtn.title = 'Restore the original text (' + comboLabel(keys.undo) + ')';
+    rebuildTranslateButtons();
   }
 
-  const WATCHED = ['keyFix', 'keyRephrase', 'keyUndo', 'showFeedback', 'feedbackSeconds'];
+  const WATCHED = [
+    'keyFix', 'keyRephrase', 'keyUndo',
+    'showFeedback', 'feedbackSeconds', 'translators'
+  ];
 
   chrome.storage.local.get(WATCHED).then(applySettings).catch(() => {});
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -63,6 +86,8 @@
   let busy = false;
   let snapshot = null; // { el, before, start, end }
   let host, shadow, bar, fixBtn, rephraseBtn, undoBtn, note;
+  let translateSep, translateWrap;
+  let translateBtns = [];
   let panel, beforeEl, afterEl;
   let rafId = null;
   let panelTimer = null;
@@ -102,6 +127,30 @@
 
   // ------------------------------------------------------------------- UI
 
+  function rebuildTranslateButtons() {
+    if (!translateWrap) return;
+
+    translateWrap.replaceChildren();
+    translateBtns = [];
+
+    const list = cfg.translators || [];
+    translateSep.style.display = list.length ? '' : 'none';
+    translateWrap.style.display = list.length ? 'contents' : 'none';
+
+    list.forEach(t => {
+      const btn = document.createElement('button');
+      btn.textContent = languageLabel(t.language);
+      btn.title = 'Translate to ' + t.language + ' (' + comboLabel(t.hotkey) + ')';
+      btn.dataset.language = t.language;
+      btn.disabled = busy;
+      btn.addEventListener('click', () => run('translate', t.language));
+      translateWrap.appendChild(btn);
+      translateBtns.push(btn);
+    });
+
+    schedule();
+  }
+
   function buildBar() {
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;';
@@ -124,6 +173,8 @@
         pointer-events: auto;
         opacity: .75;
         transition: opacity .12s ease;
+        max-width: min(920px, calc(100vw - 16px));
+        flex-wrap: wrap;
       }
       .bar:hover, .bar[data-busy="1"], .bar[data-error="1"] { opacity: 1; }
       button {
@@ -154,6 +205,7 @@
       }
       .bar[data-error="1"] .note { display: block; }
       .sep { width: 1px; align-self: stretch; background: #E4E8EE; margin: 2px 1px; }
+      .translate-wrap { display: contents; }
 
       .panel {
         position: fixed;
@@ -201,16 +253,16 @@
 
     fixBtn = document.createElement('button');
     fixBtn.textContent = 'Fix';
-    fixBtn.title = 'Correct grammar and spelling only (Ctrl+Alt+1)';
+    fixBtn.title = 'Correct grammar and spelling only (Ctrl+Alt+A)';
 
     rephraseBtn = document.createElement('button');
     rephraseBtn.textContent = 'Rephrase';
-    rephraseBtn.title = 'Rewrite in natural US business English (Ctrl+Alt+2)';
+    rephraseBtn.title = 'Rewrite in natural US business English (Ctrl+Alt+S)';
 
     undoBtn = document.createElement('button');
     undoBtn.textContent = 'Undo';
     undoBtn.className = 'undo';
-    undoBtn.title = 'Restore the original text (Ctrl+Alt+0)';
+    undoBtn.title = 'Restore the original text (Ctrl+Alt+Q)';
     undoBtn.style.display = 'none';
 
     note = document.createElement('span');
@@ -219,7 +271,13 @@
     const sep = document.createElement('span');
     sep.className = 'sep';
 
-    bar.append(fixBtn, sep, rephraseBtn, undoBtn, note);
+    translateSep = document.createElement('span');
+    translateSep.className = 'sep';
+
+    translateWrap = document.createElement('span');
+    translateWrap.className = 'translate-wrap';
+
+    bar.append(fixBtn, sep, rephraseBtn, translateSep, translateWrap, undoBtn, note);
 
     panel = document.createElement('div');
     panel.className = 'panel';
@@ -250,7 +308,12 @@
     document.documentElement.appendChild(host);
 
     // Keep the textarea's focus and selection when the bar is clicked.
-    applySettings({ keyFix: keys.fix, keyRephrase: keys.rephrase, keyUndo: keys.undo });
+    applySettings({
+      keyFix: keys.fix,
+      keyRephrase: keys.rephrase,
+      keyUndo: keys.undo,
+      translators: cfg.translators
+    });
 
     bar.addEventListener('mousedown', e => e.preventDefault());
     fixBtn.addEventListener('click', () => run('fix'));
@@ -329,8 +392,11 @@
     busy = on;
     bar.dataset.busy = on ? '1' : '0';
     fixBtn.disabled = rephraseBtn.disabled = undoBtn.disabled = on;
+    translateBtns.forEach(btn => { btn.disabled = on; });
     fixBtn.textContent = on ? 'Working' : 'Fix';
     rephraseBtn.style.display = on ? 'none' : '';
+    if (translateWrap) translateWrap.style.display = on ? 'none' : (cfg.translators.length ? 'contents' : 'none');
+    if (translateSep) translateSep.style.display = on || !cfg.translators.length ? 'none' : '';
   }
 
   function showError(msg) {
@@ -346,7 +412,7 @@
 
   // --------------------------------------------------------------- actions
 
-  async function run(mode) {
+  async function run(mode, language) {
     if (busy || !activeEl) return;
 
     const value = activeEl.value;
@@ -360,13 +426,18 @@
     const text = value.slice(start, end).trim();
 
     if (text.length < MIN_CHARS) {
-      showError('Too short to rewrite.');
+      showError(mode === 'translate' ? 'Too short to translate.' : 'Too short to rewrite.');
       return;
     }
 
     setBusy(true);
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'rewrite', mode, text });
+      const res = await chrome.runtime.sendMessage({
+        type: 'rewrite',
+        mode,
+        text,
+        language: language || undefined
+      });
       if (!res?.ok) throw new Error(res?.error || 'No response.');
       if (!activeEl.isConnected) return;
 
@@ -436,5 +507,9 @@
     if (combo === keys.fix) { e.preventDefault(); run('fix'); }
     else if (combo === keys.rephrase) { e.preventDefault(); run('rephrase'); }
     else if (combo === keys.undo) { e.preventDefault(); undo(); }
+    else {
+      const t = (cfg.translators || []).find(row => row.hotkey === combo);
+      if (t) { e.preventDefault(); run('translate', t.language); }
+    }
   }, true);
 })();

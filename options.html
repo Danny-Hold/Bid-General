@@ -97,6 +97,27 @@
   }
   .key-row .remove:hover { color: var(--warn); border-color: var(--warn); }
   .key-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .lang-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+  .lang-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(140px, .9fr) auto;
+    gap: 8px;
+    align-items: center;
+  }
+  .lang-row select,
+  .lang-row input.lang-custom { width: 100%; }
+  .lang-row input.key { max-width: none; width: 100%; }
+  .lang-row .remove {
+    padding: 8px 10px;
+    border-color: var(--line);
+    background: #fff;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .lang-row .remove:hover { color: var(--warn); border-color: var(--warn); }
+  @media (max-width: 560px) {
+    .lang-row { grid-template-columns: 1fr; }
+  }
   .toggle {
     display: flex;
     gap: 10px;
@@ -155,7 +176,7 @@
 <body>
 <main>
   <h1>BidPolish</h1>
-  <p class="sub">Fix and Rephrase, in the chat box.</p>
+  <p class="sub">Fix, Rephrase and Translate, in the chat box.</p>
 
   <fieldset>
     <legend>Gemini</legend>
@@ -220,6 +241,20 @@
   </fieldset>
 
   <fieldset>
+    <legend>Translate</legend>
+    <p class="hint" style="margin:-6px 0 16px">
+      Convert English into other languages as a casual chat message.
+      English itself is handled by Fix / Rephrase &mdash; only add non-English targets here.
+      Each language gets its own button on the chat bar and its own hotkey.
+    </p>
+
+    <div id="translators" class="lang-list"></div>
+    <div class="key-actions">
+      <button id="addTranslator" class="quiet" type="button">Add language</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
     <legend>Feedback</legend>
 
     <div class="toggle">
@@ -253,6 +288,12 @@
       <span class="lab">Rephrase &mdash; rewrite in natural English</span>
       <textarea id="rephrasePrompt" spellcheck="false"></textarea>
       <span class="hint">Keep the line about never adding facts, prices, dates or commitments. A model that helpfully adds &ldquo;we can start Monday&rdquo; to a bid is a real problem.</span>
+    </label>
+
+    <label>
+      <span class="lab">Translate &mdash; English into casual {{language}}</span>
+      <textarea id="translatePrompt" spellcheck="false"></textarea>
+      <span class="hint">Source is English. Keep the output casual. Use <code>{{language}}</code> for the target language name. Reset restores the default template.</span>
     </label>
   </fieldset>
 
