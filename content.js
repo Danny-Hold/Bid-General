@@ -95,15 +95,194 @@
 
   // ---------------------------------------------------------------- helpers
 
-  function isTarget(el) {
+  function isTextarea(el) {
     return el instanceof HTMLTextAreaElement && !el.disabled && !el.readOnly;
   }
 
-  // Replace a range inside a textarea so that React (or any listener) sees it,
-  // and so that the browser's own Ctrl+Z history still works.
+  // WhatsApp / Telegram use contenteditable divs, not <textarea>.
+  // Focus often lands on a nested node — climb to the outermost editable.
+  function resolveTarget(el) {
+    if (!(el instanceof HTMLElement)) return null;
+    if (isTextarea(el)) return el;
+
+    let node = el;
+    let outer = null;
+    while (node) {
+      if (node instanceof HTMLElement && node.isContentEditable) outer = node;
+      node = node.parentElement;
+    }
+    if (!outer) return null;
+
+    // Skip tiny fields (emoji search, title edits, etc.).
+    const r = outer.getBoundingClientRect();
+    if (r.width < 80 || r.height < 16) return null;
+    return outer;
+  }
+
+  function isTarget(el) {
+    return !!resolveTarget(el);
+  }
+
+  function getText(el) {
+    if (isTextarea(el)) return el.value;
+    return String(el.innerText || el.textContent || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r\n/g, '\n');
+  }
+
+  function getSelectionOffsets(el) {
+    if (isTextarea(el)) {
+      return { start: el.selectionStart, end: el.selectionEnd };
+    }
+
+    const value = getText(el);
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) {
+      return { start: 0, end: value.length };
+    }
+
+    try {
+      const range = sel.getRangeAt(0);
+      const pre = document.createRange();
+      pre.selectNodeContents(el);
+      pre.setEnd(range.startContainer, range.startOffset);
+      const start = pre.toString().length;
+      const end = start + range.toString().length;
+      return {
+        start: Math.max(0, Math.min(start, value.length)),
+        end: Math.max(0, Math.min(end, value.length))
+      };
+    } catch (_) {
+      return { start: 0, end: value.length };
+    }
+  }
+
+  function setSelectionOffsets(el, start, end) {
+    if (isTextarea(el)) {
+      el.focus();
+      el.setSelectionRange(start, end);
+      return true;
+    }
+
+    el.focus();
+    const sel = window.getSelection();
+    if (!sel) return false;
+
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    let charIndex = 0;
+    let startNode = null;
+    let startOff = 0;
+    let endNode = null;
+    let endOff = 0;
+    let node;
+
+    while ((node = walker.nextNode())) {
+      const len = node.nodeValue ? node.nodeValue.length : 0;
+      const next = charIndex + len;
+
+      if (!startNode && start <= next) {
+        startNode = node;
+        startOff = Math.max(0, start - charIndex);
+      }
+      if (!endNode && end <= next) {
+        endNode = node;
+        endOff = Math.max(0, end - charIndex);
+        break;
+      }
+      charIndex = next;
+    }
+
+    if (!startNode) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return true;
+    }
+
+    if (!endNode) {
+      endNode = startNode;
+      endOff = startNode.nodeValue ? startNode.nodeValue.length : 0;
+    }
+
+    try {
+      const range = document.createRange();
+      range.setStart(startNode, Math.min(startOff, startNode.nodeValue.length));
+      range.setEnd(endNode, Math.min(endOff, endNode.nodeValue.length));
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function selectAllEditable(el) {
+    el.focus();
+    const sel = window.getSelection();
+    if (!sel) return false;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  }
+
+  function dispatchEditEvents(el, data) {
+    try {
+      el.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data
+      }));
+    } catch (_) {}
+    try {
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        cancelable: false,
+        inputType: 'insertText',
+        data
+      }));
+    } catch (_) {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  // Replace a range so React / WhatsApp / Telegram listeners see it.
+  // Prefer execCommand('insertText') so the site's own undo stack still works.
   function replaceRange(el, start, end, text) {
     el.focus();
-    el.setSelectionRange(start, end);
+
+    if (isTextarea(el)) {
+      el.setSelectionRange(start, end);
+
+      let ok = false;
+      try {
+        ok = document.execCommand('insertText', false, text);
+      } catch (_) {
+        ok = false;
+      }
+
+      if (!ok) {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype, 'value'
+        ).set;
+        const v = el.value;
+        setter.call(el, v.slice(0, start) + text + v.slice(end));
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
+      const caret = start + text.length;
+      el.setSelectionRange(caret, caret);
+      return;
+    }
+
+    const whole = start <= 0 && end >= getText(el).length;
+    if (whole || !setSelectionOffsets(el, start, end)) {
+      selectAllEditable(el);
+    }
 
     let ok = false;
     try {
@@ -113,16 +292,19 @@
     }
 
     if (!ok) {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype, 'value'
-      ).set;
-      const v = el.value;
-      setter.call(el, v.slice(0, start) + text + v.slice(end));
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+      selectAllEditable(el);
+      try {
+        ok = document.execCommand('insertText', false, text);
+      } catch (_) {
+        ok = false;
+      }
     }
 
-    const caret = start + text.length;
-    el.setSelectionRange(caret, caret);
+    if (!ok) {
+      // Last resort — may be less reliable on Lexical-based composers.
+      el.textContent = text;
+      dispatchEditEvents(el, text);
+    }
   }
 
   // ------------------------------------------------------------------- UI
@@ -307,7 +489,6 @@
     shadow.append(style, bar, panel);
     document.documentElement.appendChild(host);
 
-    // Keep the textarea's focus and selection when the bar is clicked.
     applySettings({
       keyFix: keys.fix,
       keyRephrase: keys.rephrase,
@@ -326,25 +507,23 @@
     if (!activeEl || !activeEl.isConnected) return hide();
 
     const r = activeEl.getBoundingClientRect();
-    if (r.width < 120 || r.height < 24 || r.bottom < 0 || r.top > innerHeight) {
+    // WhatsApp / Telegram composers are often a single short line.
+    if (r.width < 80 || r.height < 16 || r.bottom < 0 || r.top > innerHeight) {
       bar.style.display = 'none';
       return;
     }
 
     bar.style.display = 'flex';
-    // measure after display so offsetWidth is real
     const w = bar.offsetWidth, h = bar.offsetHeight;
 
-    // Sit above the box, right-aligned, overlapping its top edge slightly.
     const barTop = Math.max(4, r.top - h + OVERLAP);
-    bar.style.left = Math.max(4, r.right - w - 8) + 'px';
+    bar.style.left = Math.max(4, Math.min(r.right - w - 8, innerWidth - w - 4)) + 'px';
     bar.style.top = barTop + 'px';
 
     if (panel && panel.style.display === 'block') {
-      panel.style.width = Math.min(r.width, 560) + 'px';
+      panel.style.width = Math.min(Math.max(r.width, 240), 560) + 'px';
       panel.style.left = Math.max(4, r.left) + 'px';
       const ph = panel.offsetHeight;
-      // Above the bar if it fits, otherwise below the box.
       const above = barTop - ph - 6;
       panel.style.top = (above >= 4 ? above : Math.min(innerHeight - ph - 4, r.bottom + 8)) + 'px';
     }
@@ -358,7 +537,6 @@
     if (bar) bar.style.display = 'none';
   }
 
-  // Typing means they have read it and moved on.
   function onTyping() {
     if (busy) return;
     hidePanel();
@@ -415,11 +593,9 @@
   async function run(mode, language) {
     if (busy || !activeEl) return;
 
-    const value = activeEl.value;
-    const selStart = activeEl.selectionStart;
-    const selEnd = activeEl.selectionEnd;
+    const value = getText(activeEl);
+    const { start: selStart, end: selEnd } = getSelectionOffsets(activeEl);
 
-    // Rewrite the selection if there is one, otherwise the whole message.
     const hasSel = selEnd > selStart;
     const start = hasSel ? selStart : 0;
     const end = hasSel ? selEnd : value.length;
@@ -460,8 +636,9 @@
   function undo() {
     if (!snapshot || !snapshot.el.isConnected) return;
     const el = snapshot.el;
-    replaceRange(el, 0, el.value.length, snapshot.before);
-    el.setSelectionRange(snapshot.start, snapshot.end);
+    const full = getText(el);
+    replaceRange(el, 0, full.length, snapshot.before);
+    setSelectionOffsets(el, snapshot.start, snapshot.end);
     snapshot = null;
     undoBtn.style.display = 'none';
     hidePanel();
@@ -471,9 +648,10 @@
   // ---------------------------------------------------------------- events
 
   function onFocusIn(e) {
-    if (!isTarget(e.target)) return;
+    const target = resolveTarget(e.target);
+    if (!target) return;
     if (!host) buildBar();
-    activeEl = e.target;
+    activeEl = target;
     if (!snapshot || snapshot.el !== activeEl) {
       snapshot = null;
       undoBtn.style.display = 'none';
@@ -482,14 +660,17 @@
   }
 
   function onFocusOut(e) {
-    if (e.target !== activeEl) return;
-    // Let a click on the bar land before hiding.
+    if (!activeEl) return;
+    if (e.target !== activeEl && !activeEl.contains(e.target)) return;
+
+    // Let a click on the bar land before hiding. Also keep the bar if focus
+    // merely moved to a nested node inside the same composer.
     setTimeout(() => {
-      if (document.activeElement !== activeEl) {
-        activeEl = null;
-        hide();
-        hidePanel();
-      }
+      const ae = document.activeElement;
+      if (ae === activeEl || (activeEl && activeEl.contains(ae))) return;
+      activeEl = null;
+      hide();
+      hidePanel();
     }, 120);
   }
 
@@ -498,14 +679,17 @@
   window.addEventListener('scroll', schedule, true);
   window.addEventListener('resize', schedule, true);
   document.addEventListener('input', e => {
-    if (e.target !== activeEl) return;
+    if (!activeEl) return;
+    if (e.target !== activeEl && !activeEl.contains(e.target)) return;
     onTyping();
     schedule();
   }, true);
 
   document.addEventListener('keydown', e => {
     if (!e.ctrlKey && !e.altKey && !e.metaKey) return;
-    if (!isTarget(document.activeElement)) return;
+    const target = resolveTarget(document.activeElement);
+    if (!target) return;
+    if (target !== activeEl) activeEl = target;
 
     const combo = comboOf(e);
     if (combo === keys.fix) { e.preventDefault(); run('fix'); }

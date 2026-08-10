@@ -1,6 +1,6 @@
 # BidPolish
 
-A Chrome extension that adds **Fix**, **Rephrase** and **Translate** to any `<textarea>` on Freelancer.com. Text is replaced in place — nobody leaves the chat box, and Ctrl+Z still works.
+A Chrome extension that adds **Fix**, **Rephrase** and **Translate** to chat boxes on Freelancer.com, WhatsApp Web and Telegram Web. Text is replaced in place — nobody leaves the chat box, and Ctrl+Z still works where the site supports it.
 
 ## Setup
 
@@ -9,7 +9,7 @@ Each person does this once, on their own machine.
 1. Create one or more Gemini API keys at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Turn billing on: on the free tier Google may use your text for training. At Flash rates the real cost is a few dollars a month. Keys from different Google accounts each get their own quota — add 2–3 if you want the extension to keep working when one hits its limit.
 2. Go to `chrome://extensions`, switch on **Developer mode**, click **Load unpacked**, select this folder.
 3. Click **Details → Extension options**, paste the key(s), click **Send a test**. A corrected sentence should come back. If a key is rate-limited or invalid, the extension automatically tries the next one and remembers which key last worked.
-4. Open a Freelancer chat and click into the message box. A small pill appears in the bottom-right corner of the field.
+4. Open a chat on Freelancer, [web.whatsapp.com](https://web.whatsapp.com) or [web.telegram.org](https://web.telegram.org) and click into the message box. A small pill appears above the field.
 
 | Action | Button | Default hotkey |
 |---|---|---|
@@ -60,6 +60,8 @@ On by default. It runs Fix with minimal reasoning and Rephrase with low reasonin
 You can store up to five keys (2–3 is enough for most teams). On Fix, Rephrase, or model listing, the extension starts with the last key that worked. If Gemini returns a quota, rate-limit, or invalid-key error, it tries the next key in the list without you changing anything. Non-quota failures (bad model name, empty response, etc.) are not retried on another key — those need a settings fix.
 
 ## Adjusting scope
+
+WhatsApp Web (`web.whatsapp.com`) and Telegram Web (`web.telegram.org`) are already included. Those sites use `contenteditable` composers rather than `<textarea>`, which the content script handles.
 
 **Other Freelancer domains** (`.in`, `.co.uk`, `.com.au`) or other platforms: add them to `content_scripts.matches` in `manifest.json`.
 
