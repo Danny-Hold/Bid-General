@@ -22,14 +22,14 @@ Each person does this once, on their own machine.
 | Native phrasing → boss | Boss | `Ctrl+Alt+5` |
 | Translate English → Spanish (casual) | Spanish | `Ctrl+Alt+D` |
 | Translate English → French (casual) | French | `Ctrl+Alt+F` |
-| Lookup selected message → English | (popup only) | `Ctrl+Alt+Z` |
+| Lookup selected message → English | (popup only) | `Ctrl+O` |
 | Restore the original | Undo | `Ctrl+Alt+Q` |
 
 Hotkeys are editable in options: click a box and press the combination you want. They are stored as physical key positions, so they keep working on non-US keyboard layouts.
 
 In **Translate**, add up to six **non-English** target languages for rewriting what you are about to send. The source is English; Fix and Rephrase already cover English writing. Each language gets its own button and hotkey. Output is casual chat phrasing, not formal translation.
 
-In **Lookup**, add target languages for reading someone else's selected message. Default is English via `Ctrl+Alt+Z`. Lookup never writes into the chat box — it only shows a popup with the translation.
+In **Lookup**, add target languages for reading someone else's selected message. Default is English via `Ctrl+O`. Lookup never writes into the chat box — it only shows a popup with the translation.
 
 Chrome reserves some combinations for itself, and a page cannot intercept a browser-level shortcut. If a hotkey does nothing in a chat box, the browser is taking it — pick another combination rather than assuming the extension is broken. The `Ctrl+Alt` range is largely free, which is why the defaults live there.
 

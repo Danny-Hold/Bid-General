@@ -18,11 +18,11 @@ const FALLBACK_HOTKEYS = [
   'Ctrl+Alt+KeyH',
   'Ctrl+Alt+KeyJ',
   'Ctrl+Alt+KeyK',
-  'Ctrl+Alt+KeyZ'
+  'Ctrl+KeyO'
 ];
 
 const LOOKUP_FALLBACK_HOTKEYS = [
-  'Ctrl+Alt+KeyZ',
+  'Ctrl+KeyO',
   'Ctrl+Alt+KeyX',
   'Ctrl+Alt+KeyC',
   'Ctrl+Alt+KeyV',
@@ -350,7 +350,7 @@ function addLookupRow(entry) {
   if (lookupRows().length >= MAX_LOOKUPS) return;
 
   const language = (entry && entry.language) || 'English';
-  const hotkey = (entry && entry.hotkey) || nextFreeLookupHotkey() || 'Ctrl+Alt+KeyZ';
+  const hotkey = (entry && entry.hotkey) || nextFreeLookupHotkey() || 'Ctrl+KeyO';
   const isCustom = language && !LOOKUP_LANGUAGE_OPTIONS.includes(language);
 
   const row = document.createElement('div');
@@ -394,7 +394,7 @@ function addLookupRow(entry) {
       sel.value = 'English';
       custom.value = '';
       custom.classList.add('hidden');
-      const fallback = nextFreeLookupHotkey() || 'Ctrl+Alt+KeyZ';
+      const fallback = nextFreeLookupHotkey() || 'Ctrl+KeyO';
       hotkeyInput.dataset.combo = fallback;
       hotkeyInput.value = comboLabel(fallback);
       syncLookupControls();

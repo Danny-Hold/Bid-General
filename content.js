@@ -54,7 +54,7 @@
       { language: 'French', hotkey: 'Ctrl+Alt+KeyF' }
     ],
     lookups: [
-      { language: 'English', hotkey: 'Ctrl+Alt+KeyZ' }
+      { language: 'English', hotkey: 'Ctrl+KeyO' }
     ],
     natives: NATIVE_LEVELS.map((l, i) => ({
       id: l.id,
@@ -791,6 +791,30 @@
   }
 
   function selectionPayload() {
+    // On Freelancer, the composer is a <textarea>. When the user selects inside
+    // it and presses the lookup hotkey, `window.getSelection()` is often empty
+    // because the selection lives in the textarea, not the document selection.
+    if (activeEl && isTextarea(activeEl)) {
+      const selStart = activeEl.selectionStart;
+      const selEnd = activeEl.selectionEnd;
+      if (selEnd > selStart) {
+        const full = activeEl.value;
+        const text = String(full.slice(selStart, selEnd)).replace(/\u00a0/g, ' ').trim();
+        if (text) {
+          const r = activeEl.getBoundingClientRect();
+          return {
+            text,
+            anchor: {
+              left: r.left + r.width / 2 - 140,
+              right: r.left + r.width / 2 + 140,
+              top: r.top + 40,
+              bottom: r.bottom
+            }
+          };
+        }
+      }
+    }
+
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
     const text = String(sel.toString() || '').replace(/\u00a0/g, ' ').trim();

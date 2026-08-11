@@ -189,7 +189,7 @@ const DEFAULT_TRANSLATORS = [
 ];
 
 const DEFAULT_LOOKUPS = [
-  { language: 'English', hotkey: 'Ctrl+Alt+KeyZ' }
+  { language: 'English', hotkey: 'Ctrl+KeyO' }
 ];
 
 /** Older prompt — migrate installs still on this text to the casual version. */
