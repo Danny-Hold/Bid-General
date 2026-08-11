@@ -293,9 +293,34 @@
     }
   }
 
+  function normalizeVisible(s) {
+    return String(s || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function waitFrames(n = 2) {
+    return new Promise(resolve => {
+      const step = () => {
+        if (n-- <= 0) resolve();
+        else requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
   // Replace a range so React / WhatsApp / Telegram listeners see it.
   // Prefer execCommand('insertText') so the site's own undo stack still works.
-  function replaceRange(el, start, end, text) {
+  async function replaceRange(el, start, end, text, opts) {
+    const preferPaste =
+      !!opts?.preferPaste &&
+      !isTextarea(el) &&
+      // Only use the paste path for full composer rewrites. Partial selection
+      // rewriting is more fragile and we keep the old execCommand behavior.
+      start <= 0 &&
+      end >= getText(el).length;
+
     el.focus();
 
     if (isTextarea(el)) {
@@ -319,13 +344,30 @@
 
       const caret = start + text.length;
       el.setSelectionRange(caret, caret);
-      return;
+      return true;
+    }
+
+    if (preferPaste) {
+      selectAllEditable(el);
+      try {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        el.dispatchEvent(new ClipboardEvent('paste', {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+          composed: true
+        }));
+      } catch (_) {}
+
+      await waitFrames(2);
+
+      // Verify: WhatsApp Lexical normally replaces the whole composer.
+      if (normalizeVisible(getText(el)) === normalizeVisible(text)) return true;
     }
 
     const whole = start <= 0 && end >= getText(el).length;
-    if (whole || !setSelectionOffsets(el, start, end)) {
-      selectAllEditable(el);
-    }
+    if (whole || !setSelectionOffsets(el, start, end)) selectAllEditable(el);
 
     let ok = false;
     try {
@@ -348,6 +390,11 @@
       el.textContent = text;
       dispatchEditEvents(el, text);
     }
+
+    await waitFrames(1);
+    return normalizeVisible(getText(el)) === normalizeVisible(
+      (start <= 0 && end >= getText(el).length) ? text : text
+    );
   }
 
   // ------------------------------------------------------------------- UI
@@ -927,7 +974,9 @@
       if (!activeEl.isConnected) return;
 
       snapshot = { el: activeEl, before: value, start, end };
-      replaceRange(activeEl, start, end, res.text);
+      await replaceRange(activeEl, start, end, res.text, {
+        preferPaste: !hasSel
+      });
       undoBtn.style.display = '';
       showPanel(text, res.text);
     } catch (err) {
@@ -942,11 +991,12 @@
     }
   }
 
-  function undo() {
+  async function undo() {
     if (!snapshot || !snapshot.el.isConnected) return;
     const el = snapshot.el;
     const full = getText(el);
-    replaceRange(el, 0, full.length, snapshot.before);
+    // Undo always rewrites whole composer.
+    await replaceRange(el, 0, full.length, snapshot.before, { preferPaste: true });
     setSelectionOffsets(el, snapshot.start, snapshot.end);
     snapshot = null;
     undoBtn.style.display = 'none';
