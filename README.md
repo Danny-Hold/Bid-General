@@ -1,6 +1,6 @@
 # BidPolish
 
-A Chrome extension that adds **Fix**, **Rephrase**, **Native tone** and **Translate** to chat boxes on Freelancer.com, WhatsApp Web and Telegram Web. Text is replaced in place — nobody leaves the chat box, and Ctrl+Z still works where the site supports it.
+A Chrome extension that adds **Fix**, **Rephrase**, **Native tone**, **Translate** and **Lookup** to chats on Freelancer.com, WhatsApp Web and Telegram Web. Compose actions replace text in place; Lookup only shows a translation popup for selected messages.
 
 ## Setup
 
@@ -22,11 +22,14 @@ Each person does this once, on their own machine.
 | Native phrasing → boss | Boss | `Ctrl+Alt+5` |
 | Translate English → Spanish (casual) | Spanish | `Ctrl+Alt+D` |
 | Translate English → French (casual) | French | `Ctrl+Alt+F` |
+| Lookup selected message → English | (popup only) | `Ctrl+Alt+Z` |
 | Restore the original | Undo | `Ctrl+Alt+Q` |
 
 Hotkeys are editable in options: click a box and press the combination you want. They are stored as physical key positions, so they keep working on non-US keyboard layouts.
 
-In **Translate**, add up to six **non-English** target languages. The source is English; Fix and Rephrase already cover English writing. Each language gets its own button and hotkey. Output is casual chat phrasing, not formal translation.
+In **Translate**, add up to six **non-English** target languages for rewriting what you are about to send. The source is English; Fix and Rephrase already cover English writing. Each language gets its own button and hotkey. Output is casual chat phrasing, not formal translation.
+
+In **Lookup**, add target languages for reading someone else's selected message. Default is English via `Ctrl+Alt+Z`. Lookup never writes into the chat box — it only shows a popup with the translation.
 
 Chrome reserves some combinations for itself, and a page cannot intercept a browser-level shortcut. If a hotkey does nothing in a chat box, the browser is taking it — pick another combination rather than assuming the extension is broken. The `Ctrl+Alt` range is largely free, which is why the defaults live there.
 
@@ -45,6 +48,8 @@ Fix, Rephrase, Translate and Native tone are editable in the options page, and *
 - *No enthusiasm words, exclamation marks, emoji or em dashes.* These are the tells clients read as AI-written.
 
 **Translate** converts an English chat message into the chosen language as a **casual** chat message — everyday wording, not formal or textbook style. The prompt template uses `{{language}}`, which is replaced with the language name for that button/hotkey. English is not offered as a translate target; use Fix or Rephrase for English.
+
+**Lookup** translates a message you selected on the page (typically someone else's) into a configured language and shows the result in a popup. It does not touch the chat input. English is the default target.
 
 **Native tone** is English in, English out — see below.
 

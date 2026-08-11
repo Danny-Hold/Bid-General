@@ -47,6 +47,22 @@ Leave these exactly as written when they are proper nouns or identifiers: names,
 Return only the translated message text. No commentary, no explanation, no quotation marks, no markdown.`;
 
 /**
+ * Lookup / read-translate. For understanding someone else's selected message.
+ * Does not write into the chat box — the content script only shows the result.
+ * English is a valid target here (unlike compose Translate).
+ */
+const DEFAULT_LOOKUP_PROMPT =
+`Translate the following chat message into clear, natural {{language}}.
+
+The text is something another person wrote that the user has selected in order to understand it. Keep the meaning exactly. Prefer everyday wording over formal or literary phrasing. Keep it about the same length.
+
+Leave these exactly as written when they are proper nouns or identifiers: names, technical terms, file names, URLs, numbers, prices, dates and any code.
+
+If the message is already in {{language}}, return it unchanged.
+
+Return only the translated message text. No commentary, no explanation, no quotation marks, no markdown.`;
+
+/**
  * Native tone. English in, English out. Unlike Rephrase (which only makes the
  * message read naturally), this one deliberately compresses into the set
  * phrases and idioms a native writer would actually reach for, and pitches the
@@ -132,6 +148,7 @@ const DEFAULT_NATIVES = NATIVE_LEVELS.map(l => ({ id: l.id, hotkey: l.hotkey, on
 
 const MAX_API_KEYS = 5;
 const MAX_TRANSLATORS = 6;
+const MAX_LOOKUPS = 6;
 
 /** Look up a tone level by its stored id. */
 function nativeLevel(id) {
@@ -163,9 +180,16 @@ const LANGUAGE_OPTIONS = [
   'Korean'
 ];
 
+/** Lookup may target English — that is the usual case for reading others' messages. */
+const LOOKUP_LANGUAGE_OPTIONS = ['English', ...LANGUAGE_OPTIONS];
+
 const DEFAULT_TRANSLATORS = [
   { language: 'Spanish', hotkey: 'Ctrl+Alt+KeyD' },
   { language: 'French', hotkey: 'Ctrl+Alt+KeyF' }
+];
+
+const DEFAULT_LOOKUPS = [
+  { language: 'English', hotkey: 'Ctrl+Alt+KeyZ' }
 ];
 
 /** Older prompt — migrate installs still on this text to the casual version. */
@@ -193,12 +217,14 @@ const DEFAULTS = {
   keyRephrase: 'Ctrl+Alt+KeyS',
   keyUndo: 'Ctrl+Alt+KeyQ',
   translators: DEFAULT_TRANSLATORS,
+  lookups: DEFAULT_LOOKUPS,
   natives: DEFAULT_NATIVES,
   showFeedback: true,
   feedbackSeconds: 6,
   fixPrompt: DEFAULT_FIX_PROMPT,
   rephrasePrompt: DEFAULT_REPHRASE_PROMPT,
   translatePrompt: DEFAULT_TRANSLATE_PROMPT,
+  lookupPrompt: DEFAULT_LOOKUP_PROMPT,
   nativePrompt: DEFAULT_NATIVE_PROMPT
 };
 
@@ -270,6 +296,28 @@ function normalizeTranslators(settings) {
   return out.length ? out : DEFAULT_TRANSLATORS.map(t => ({ language: t.language, hotkey: t.hotkey }));
 }
 
+/** Selection / read translators. English is allowed. */
+function normalizeLookups(settings) {
+  const raw = Array.isArray(settings?.lookups) ? settings.lookups : null;
+  const seenLang = new Set();
+  const seenHotkey = new Set();
+  const out = [];
+
+  for (const row of raw || DEFAULT_LOOKUPS) {
+    const language = String(row?.language || '').trim();
+    const hotkey = String(row?.hotkey || '').trim();
+    if (!language || !hotkey) continue;
+    const langKey = language.toLowerCase();
+    if (seenLang.has(langKey) || seenHotkey.has(hotkey)) continue;
+    seenLang.add(langKey);
+    seenHotkey.add(hotkey);
+    out.push({ language, hotkey });
+    if (out.length >= MAX_LOOKUPS) break;
+  }
+
+  return out.length ? out : DEFAULT_LOOKUPS.map(t => ({ language: t.language, hotkey: t.hotkey }));
+}
+
 /**
  * Always returns all five levels, in canonical order, whatever is in storage.
  * A hotkey that is missing or already claimed by an earlier level is dropped to
@@ -318,19 +366,23 @@ async function loadSettings() {
 async function migrateSettings(settings) {
   const keys = normalizeApiKeys(settings);
   const translators = normalizeTranslators(settings);
+  const lookups = normalizeLookups(settings);
   const natives = normalizeNatives(settings);
   const translatePrompt =
     !settings.translatePrompt || settings.translatePrompt === LEGACY_TRANSLATE_PROMPT
       ? DEFAULT_TRANSLATE_PROMPT
       : settings.translatePrompt;
+  const lookupPrompt = settings.lookupPrompt || DEFAULT_LOOKUP_PROMPT;
   const nativePrompt = settings.nativePrompt || DEFAULT_NATIVE_PROMPT;
 
   const needsWrite =
     settings.apiKey ||
     JSON.stringify(settings.apiKeys || []) !== JSON.stringify(keys) ||
     JSON.stringify(settings.translators || []) !== JSON.stringify(translators) ||
+    JSON.stringify(settings.lookups || []) !== JSON.stringify(lookups) ||
     JSON.stringify(settings.natives || []) !== JSON.stringify(natives) ||
     settings.translatePrompt !== translatePrompt ||
+    settings.lookupPrompt !== lookupPrompt ||
     settings.nativePrompt !== nativePrompt;
 
   const next = {
@@ -339,8 +391,10 @@ async function migrateSettings(settings) {
     apiKey: '',
     apiKeyIndex: Math.min(Math.max(0, Number(settings.apiKeyIndex) || 0), Math.max(0, keys.length - 1)),
     translators,
+    lookups,
     natives,
     translatePrompt,
+    lookupPrompt,
     nativePrompt
   };
 
@@ -350,8 +404,10 @@ async function migrateSettings(settings) {
       apiKey: '',
       apiKeyIndex: next.apiKeyIndex,
       translators: next.translators,
+      lookups: next.lookups,
       natives: next.natives,
       translatePrompt: next.translatePrompt,
+      lookupPrompt: next.lookupPrompt,
       nativePrompt: next.nativePrompt
     });
   }

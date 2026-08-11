@@ -19,6 +19,7 @@ const THINKING_LEVEL = {
   fix: 'MINIMAL',
   rephrase: 'LOW',
   translate: 'MINIMAL',
+  lookup: 'MINIMAL',
   // Picking the right idiom for the right reader is a judgement call, so this
   // one gets the same budget as Rephrase rather than the minimum.
   native: 'LOW'
@@ -39,6 +40,12 @@ function systemPromptFor(settings, job) {
   if (job.mode === 'translate') {
     const lang = String(job.language || '').trim() || 'Spanish';
     const template = settings.translatePrompt || DEFAULT_TRANSLATE_PROMPT;
+    return template.split('{{language}}').join(lang);
+  }
+
+  if (job.mode === 'lookup') {
+    const lang = String(job.language || '').trim() || 'English';
+    const template = settings.lookupPrompt || DEFAULT_LOOKUP_PROMPT;
     return template.split('{{language}}').join(lang);
   }
 
@@ -107,7 +114,7 @@ async function rewrite(job) {
     throw new Error('No API key set. Open the extension options.');
   }
 
-  if (job.mode === 'translate' && !String(job.language || '').trim()) {
+  if ((job.mode === 'translate' || job.mode === 'lookup') && !String(job.language || '').trim()) {
     throw new Error('No target language set. Open the extension options.');
   }
 

@@ -53,6 +53,9 @@
       { language: 'Spanish', hotkey: 'Ctrl+Alt+KeyD' },
       { language: 'French', hotkey: 'Ctrl+Alt+KeyF' }
     ],
+    lookups: [
+      { language: 'English', hotkey: 'Ctrl+Alt+KeyZ' }
+    ],
     natives: NATIVE_LEVELS.map((l, i) => ({
       id: l.id,
       hotkey: 'Ctrl+Alt+Digit' + (i + 1),
@@ -74,6 +77,14 @@
         }))
         .filter(t => t.language && t.hotkey && !/^english$/i.test(t.language));
     }
+    if (Array.isArray(s.lookups)) {
+      cfg.lookups = s.lookups
+        .map(t => ({
+          language: String(t?.language || '').trim(),
+          hotkey: String(t?.hotkey || '').trim()
+        }))
+        .filter(t => t.language && t.hotkey);
+    }
     if (Array.isArray(s.natives)) {
       cfg.natives = s.natives
         .map(n => ({
@@ -94,7 +105,7 @@
 
   const WATCHED = [
     'keyFix', 'keyRephrase', 'keyUndo',
-    'showFeedback', 'feedbackSeconds', 'translators', 'natives'
+    'showFeedback', 'feedbackSeconds', 'translators', 'lookups', 'natives'
   ];
 
   chrome.storage.local.get(WATCHED).then(applySettings).catch(() => {});
@@ -116,9 +127,14 @@
   let nativeSep, nativeWrap;
   let nativeBtns = [];
   let panel, beforeEl, afterEl;
+  let lookupPanel, lookupBeforeEl, lookupAfterEl, lookupTitleEl;
   let rafId = null;
   let panelTimer = null;
   let fadeTimer = null;
+  let lookupTimer = null;
+  let lookupFadeTimer = null;
+  let lookupBusy = false;
+  let lookupAnchor = null; // { left, top, bottom, right }
 
   // ---------------------------------------------------------------- helpers
 
@@ -486,7 +502,38 @@
         overflow-wrap: anywhere;
       }
       .pair.old .txt { color: #6B7484; }
-      @media (prefers-reduced-motion: reduce) { .panel { transition: none; } }
+      .lookup {
+        position: fixed;
+        display: none;
+        opacity: 0;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border: 1px solid #D3D9E2;
+        border-radius: 8px;
+        background: #FFFFFF;
+        box-shadow: 0 2px 4px rgba(14,21,33,.06), 0 8px 24px rgba(14,21,33,.10);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        pointer-events: auto;
+        cursor: pointer;
+        transition: opacity .18s ease;
+        z-index: 1;
+        max-width: min(560px, calc(100vw - 16px));
+      }
+      .lookup .head {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 9.5px;
+        letter-spacing: .09em;
+        text-transform: uppercase;
+        color: #2F6F62;
+        margin: 0 0 8px;
+      }
+      .lookup .status {
+        margin: 0;
+        font-size: 12.5px;
+        color: #6B7484;
+      }
+      .lookup[data-error="1"] .status { color: #8A4B12; }
+      @media (prefers-reduced-motion: reduce) { .panel, .lookup { transition: none; } }
       @media (prefers-reduced-motion: reduce) { .bar { transition: none; } }
     `;
 
@@ -558,7 +605,41 @@
     panel.append(oldPair, newPair);
     panel.addEventListener('mousedown', e => { e.preventDefault(); hidePanel(); });
 
-    shadow.append(style, bar, panel);
+    lookupPanel = document.createElement('div');
+    lookupPanel.className = 'lookup';
+    lookupPanel.title = 'Click to dismiss';
+    lookupTitleEl = document.createElement('div');
+    lookupTitleEl.className = 'head';
+    lookupTitleEl.textContent = 'Lookup';
+    const lookupStatus = document.createElement('p');
+    lookupStatus.className = 'status';
+    lookupStatus.style.display = 'none';
+
+    const lookupOld = document.createElement('div');
+    lookupOld.className = 'pair old';
+    const lookupOldTag = document.createElement('span');
+    lookupOldTag.className = 'tag';
+    lookupOldTag.textContent = 'Selected';
+    lookupBeforeEl = document.createElement('p');
+    lookupBeforeEl.className = 'txt';
+    lookupOld.append(lookupOldTag, lookupBeforeEl);
+
+    const lookupNew = document.createElement('div');
+    lookupNew.className = 'pair new';
+    const lookupNewTag = document.createElement('span');
+    lookupNewTag.className = 'tag';
+    lookupNewTag.textContent = 'Translation';
+    lookupAfterEl = document.createElement('p');
+    lookupAfterEl.className = 'txt';
+    lookupNew.append(lookupNewTag, lookupAfterEl);
+
+    lookupPanel.append(lookupTitleEl, lookupStatus, lookupOld, lookupNew);
+    lookupPanel.addEventListener('mousedown', e => { e.preventDefault(); hideLookup(); });
+    lookupPanel._status = lookupStatus;
+    lookupPanel._old = lookupOld;
+    lookupPanel._new = lookupNew;
+
+    shadow.append(style, bar, panel, lookupPanel);
     document.documentElement.appendChild(host);
 
     applySettings({
@@ -577,12 +658,18 @@
 
   function position() {
     rafId = null;
-    if (!activeEl || !activeEl.isConnected) return hide();
+
+    if (!activeEl || !activeEl.isConnected) {
+      hide();
+      positionLookup();
+      return;
+    }
 
     const r = activeEl.getBoundingClientRect();
     // WhatsApp / Telegram composers are often a single short line.
     if (r.width < 80 || r.height < 16 || r.bottom < 0 || r.top > innerHeight) {
       bar.style.display = 'none';
+      positionLookup();
       return;
     }
 
@@ -600,6 +687,19 @@
       const above = barTop - ph - 6;
       panel.style.top = (above >= 4 ? above : Math.min(innerHeight - ph - 4, r.bottom + 8)) + 'px';
     }
+
+    positionLookup();
+  }
+
+  function positionLookup() {
+    if (!lookupPanel || lookupPanel.style.display !== 'block' || !lookupAnchor) return;
+    const a = lookupAnchor;
+    const w = Math.min(560, Math.max(280, a.right - a.left), innerWidth - 16);
+    lookupPanel.style.width = w + 'px';
+    lookupPanel.style.left = Math.max(4, Math.min(a.left, innerWidth - w - 4)) + 'px';
+    const ph = lookupPanel.offsetHeight;
+    const above = a.top - ph - 8;
+    lookupPanel.style.top = (above >= 4 ? above : Math.min(innerHeight - ph - 4, a.bottom + 8)) + 'px';
   }
 
   function schedule() {
@@ -637,6 +737,135 @@
     clearTimeout(fadeTimer);
     panel.style.opacity = '0';
     fadeTimer = setTimeout(() => { panel.style.display = 'none'; }, 200);
+  }
+
+  function ensureUi() {
+    if (!host) buildBar();
+  }
+
+  function selectionPayload() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    const text = String(sel.toString() || '').replace(/\u00a0/g, ' ').trim();
+    if (!text) return null;
+    let rect;
+    try {
+      rect = sel.getRangeAt(0).getBoundingClientRect();
+    } catch (_) {
+      rect = null;
+    }
+    if (!rect || (!rect.width && !rect.height)) {
+      rect = { left: innerWidth / 2 - 140, right: innerWidth / 2 + 140, top: 80, bottom: 100 };
+    }
+    return {
+      text,
+      anchor: {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom
+      }
+    };
+  }
+
+  function showLookupWorking(language, anchor) {
+    ensureUi();
+    clearTimeout(lookupTimer);
+    clearTimeout(lookupFadeTimer);
+    lookupAnchor = anchor;
+    lookupTitleEl.textContent = 'Lookup → ' + language;
+    lookupPanel._status.style.display = 'block';
+    lookupPanel._status.textContent = 'Translating…';
+    lookupPanel.dataset.error = '0';
+    lookupPanel._old.style.display = 'none';
+    lookupPanel._new.style.display = 'none';
+    lookupPanel.style.display = 'block';
+    lookupPanel.style.opacity = '0';
+    schedule();
+    requestAnimationFrame(() => { lookupPanel.style.opacity = '1'; });
+  }
+
+  function showLookupResult(language, before, after, anchor) {
+    ensureUi();
+    clearTimeout(lookupTimer);
+    clearTimeout(lookupFadeTimer);
+    lookupAnchor = anchor;
+    lookupTitleEl.textContent = 'Lookup → ' + language;
+    lookupPanel._status.style.display = 'none';
+    lookupPanel.dataset.error = '0';
+    lookupBeforeEl.textContent = before;
+    lookupAfterEl.textContent = after;
+    lookupPanel._old.style.display = '';
+    lookupPanel._new.style.display = '';
+    lookupPanel.style.display = 'block';
+    lookupPanel.style.opacity = '0';
+    schedule();
+    requestAnimationFrame(() => { lookupPanel.style.opacity = '1'; });
+    lookupTimer = setTimeout(hideLookup, Math.max(3, cfg.feedbackSeconds) * 1000);
+  }
+
+  function showLookupError(msg, anchor) {
+    ensureUi();
+    clearTimeout(lookupTimer);
+    clearTimeout(lookupFadeTimer);
+    lookupAnchor = anchor || lookupAnchor || {
+      left: 24, right: 320, top: 80, bottom: 100
+    };
+    lookupTitleEl.textContent = 'Lookup';
+    lookupPanel._status.style.display = 'block';
+    lookupPanel._status.textContent = msg;
+    lookupPanel.dataset.error = '1';
+    lookupPanel._old.style.display = 'none';
+    lookupPanel._new.style.display = 'none';
+    lookupPanel.style.display = 'block';
+    lookupPanel.style.opacity = '1';
+    schedule();
+    lookupTimer = setTimeout(hideLookup, 5000);
+  }
+
+  function hideLookup() {
+    if (!lookupPanel || lookupPanel.style.display === 'none') return;
+    clearTimeout(lookupTimer);
+    clearTimeout(lookupFadeTimer);
+    lookupPanel.style.opacity = '0';
+    lookupFadeTimer = setTimeout(() => {
+      lookupPanel.style.display = 'none';
+      lookupAnchor = null;
+    }, 200);
+  }
+
+  async function runLookup(language) {
+    if (lookupBusy) return;
+    const payload = selectionPayload();
+    if (!payload) {
+      showLookupError('Select a message first, then press the hotkey.');
+      return;
+    }
+    if (payload.text.length < 2) {
+      showLookupError('Selection is too short.', payload.anchor);
+      return;
+    }
+
+    lookupBusy = true;
+    showLookupWorking(language, payload.anchor);
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'rewrite',
+        mode: 'lookup',
+        text: payload.text,
+        language
+      });
+      if (!res?.ok) throw new Error(res?.error || 'No response.');
+      showLookupResult(language, payload.text, res.text, payload.anchor);
+    } catch (err) {
+      const raw = String(err?.message || err);
+      const msg = /extension context invalidated/i.test(raw)
+        ? 'Extension was reloaded — refresh this page.'
+        : raw;
+      showLookupError(msg.slice(0, 160), payload.anchor);
+    } finally {
+      lookupBusy = false;
+    }
   }
 
   function setBusy(on) {
@@ -767,11 +996,21 @@
 
   document.addEventListener('keydown', e => {
     if (!e.ctrlKey && !e.altKey && !e.metaKey) return;
+
+    const combo = comboOf(e);
+
+    // Lookup works on any page selection — not only inside the chat box.
+    const lookup = (cfg.lookups || []).find(row => row.hotkey === combo);
+    if (lookup) {
+      e.preventDefault();
+      runLookup(lookup.language);
+      return;
+    }
+
     const target = resolveTarget(document.activeElement);
     if (!target) return;
     if (target !== activeEl) activeEl = target;
 
-    const combo = comboOf(e);
     if (combo === keys.fix) { e.preventDefault(); run('fix'); }
     else if (combo === keys.rephrase) { e.preventDefault(); run('rephrase'); }
     else if (combo === keys.undo) { e.preventDefault(); undo(); }

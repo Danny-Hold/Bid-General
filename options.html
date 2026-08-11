@@ -201,7 +201,7 @@
 <body>
 <main>
   <h1>BidPolish</h1>
-  <p class="sub">Fix, Rephrase, Native tone and Translate, in the chat box.</p>
+  <p class="sub">Fix, Rephrase, Native tone, Translate and Lookup, in the chat.</p>
 
   <fieldset>
     <legend>Gemini</legend>
@@ -268,7 +268,7 @@
   <fieldset>
     <legend>Translate</legend>
     <p class="hint" style="margin:-6px 0 16px">
-      Convert English into other languages as a casual chat message.
+      Convert English into other languages as a casual chat message, and replace the text in the chat box.
       English itself is handled by Fix / Rephrase &mdash; only add non-English targets here.
       Each language gets its own button on the chat bar and its own hotkey.
     </p>
@@ -276,6 +276,20 @@
     <div id="translators" class="lang-list"></div>
     <div class="key-actions">
       <button id="addTranslator" class="quiet" type="button">Add language</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Lookup</legend>
+    <p class="hint" style="margin:-6px 0 16px">
+      Translate a message you selected on the page (someone else&rsquo;s text).
+      Shows a popup only &mdash; never writes into the chat box.
+      Default is English via <code>Ctrl+Alt+Z</code>. Add more languages if you need them.
+    </p>
+
+    <div id="lookups" class="lang-list"></div>
+    <div class="key-actions">
+      <button id="addLookup" class="quiet" type="button">Add language</button>
     </div>
   </fieldset>
 
@@ -330,6 +344,12 @@
       <span class="lab">Translate &mdash; English into casual {{language}}</span>
       <textarea id="translatePrompt" spellcheck="false"></textarea>
       <span class="hint">Source is English. Keep the output casual. Use <code>{{language}}</code> for the target language name. Reset restores the default template.</span>
+    </label>
+
+    <label>
+      <span class="lab">Lookup &mdash; selected message into {{language}}</span>
+      <textarea id="lookupPrompt" spellcheck="false"></textarea>
+      <span class="hint">For reading others&rsquo; messages. Result is shown in a popup only. Use <code>{{language}}</code> for the target language name.</span>
     </label>
 
     <label>

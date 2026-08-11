@@ -1,6 +1,6 @@
 'use strict';
 
-const TEXT_FIELDS = ['model', 'fixPrompt', 'rephrasePrompt', 'translatePrompt', 'nativePrompt'];
+const TEXT_FIELDS = ['model', 'fixPrompt', 'rephrasePrompt', 'translatePrompt', 'lookupPrompt', 'nativePrompt'];
 const BOOL_FIELDS = ['fastMode', 'showFeedback'];
 const NUM_FIELDS = ['feedbackSeconds'];
 const KEY_FIELDS = ['keyFix', 'keyRephrase', 'keyUndo'];
@@ -8,6 +8,7 @@ const $ = id => document.getElementById(id);
 const status = $('status');
 const keysRoot = $('apiKeys');
 const translatorsRoot = $('translators');
+const lookupsRoot = $('lookups');
 const nativesRoot = $('natives');
 
 const FALLBACK_HOTKEYS = [
@@ -16,7 +17,17 @@ const FALLBACK_HOTKEYS = [
   'Ctrl+Alt+KeyG',
   'Ctrl+Alt+KeyH',
   'Ctrl+Alt+KeyJ',
-  'Ctrl+Alt+KeyK'
+  'Ctrl+Alt+KeyK',
+  'Ctrl+Alt+KeyZ'
+];
+
+const LOOKUP_FALLBACK_HOTKEYS = [
+  'Ctrl+Alt+KeyZ',
+  'Ctrl+Alt+KeyX',
+  'Ctrl+Alt+KeyC',
+  'Ctrl+Alt+KeyV',
+  'Ctrl+Alt+KeyB',
+  'Ctrl+Alt+KeyN'
 ];
 
 function say(msg, tone) {
@@ -108,9 +119,15 @@ function nextFreeHotkey() {
   return FALLBACK_HOTKEYS.find(h => !used.has(h)) || '';
 }
 
-function fillLanguageSelect(sel, language) {
+function nextFreeLookupHotkey() {
+  const used = reservedCombos(null);
+  return LOOKUP_FALLBACK_HOTKEYS.find(h => !used.has(h)) || nextFreeHotkey();
+}
+
+function fillLanguageSelect(sel, language, options) {
+  const list = options || LANGUAGE_OPTIONS;
   sel.replaceChildren();
-  LANGUAGE_OPTIONS.forEach(name => {
+  list.forEach(name => {
     const opt = document.createElement('option');
     opt.value = name;
     opt.textContent = name;
@@ -121,7 +138,7 @@ function fillLanguageSelect(sel, language) {
   custom.textContent = 'Custom…';
   sel.appendChild(custom);
 
-  if (LANGUAGE_OPTIONS.includes(language)) {
+  if (list.includes(language)) {
     sel.value = language;
   } else {
     sel.value = '__custom__';
@@ -233,7 +250,7 @@ function addTranslatorRow(entry) {
 
   const langWrap = document.createElement('div');
   const sel = document.createElement('select');
-  fillLanguageSelect(sel, language);
+  fillLanguageSelect(sel, language, LANGUAGE_OPTIONS);
 
   const custom = document.createElement('input');
   custom.type = 'text';
@@ -284,10 +301,11 @@ function readTranslatorsFromUi() {
   const out = [];
   const seenLang = new Set();
   const seenHotkey = new Set();
-  // Hotkeys already claimed by the fixed actions or a tone level.
+  // Hotkeys already claimed by the fixed actions, tone levels or lookup.
   const claimed = new Set([
     ...KEY_FIELDS.map(id => $(id).dataset.combo),
-    ...nativeRows().map(row => row.querySelector('input.key').dataset.combo)
+    ...nativeRows().map(row => row.querySelector('input.key').dataset.combo),
+    ...lookupRows().map(row => row.querySelector('input.key').dataset.combo)
   ].filter(Boolean));
 
   for (const row of translatorRows()) {
@@ -315,6 +333,122 @@ function readTranslatorsFromUi() {
   return out;
 }
 
+function lookupRows() {
+  return [...lookupsRoot.querySelectorAll('.lang-row')];
+}
+
+function syncLookupControls() {
+  const rows = lookupRows();
+  $('addLookup').disabled = rows.length >= MAX_LOOKUPS;
+  rows.forEach(row => {
+    const btn = row.querySelector('.remove');
+    if (btn) btn.disabled = rows.length <= 1;
+  });
+}
+
+function addLookupRow(entry) {
+  if (lookupRows().length >= MAX_LOOKUPS) return;
+
+  const language = (entry && entry.language) || 'English';
+  const hotkey = (entry && entry.hotkey) || nextFreeLookupHotkey() || 'Ctrl+Alt+KeyZ';
+  const isCustom = language && !LOOKUP_LANGUAGE_OPTIONS.includes(language);
+
+  const row = document.createElement('div');
+  row.className = 'lang-row';
+
+  const langWrap = document.createElement('div');
+  const sel = document.createElement('select');
+  fillLanguageSelect(sel, language, LOOKUP_LANGUAGE_OPTIONS);
+
+  const custom = document.createElement('input');
+  custom.type = 'text';
+  custom.className = 'lang-custom';
+  custom.placeholder = 'Language name';
+  custom.spellcheck = true;
+  custom.value = isCustom ? language : '';
+  custom.classList.toggle('hidden', !isCustom);
+
+  sel.addEventListener('change', () => {
+    const customMode = sel.value === '__custom__';
+    custom.classList.toggle('hidden', !customMode);
+    if (customMode) custom.focus();
+  });
+
+  langWrap.append(sel, custom);
+
+  const hotkeyInput = document.createElement('input');
+  hotkeyInput.className = 'key';
+  hotkeyInput.type = 'text';
+  hotkeyInput.readOnly = true;
+  hotkeyInput.dataset.combo = hotkey;
+  hotkeyInput.value = comboLabel(hotkey);
+  bindHotkeyInput(hotkeyInput);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'remove';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', () => {
+    if (lookupRows().length <= 1) {
+      // Keep one empty-ish row usable: reset to English default hotkey if free.
+      sel.value = 'English';
+      custom.value = '';
+      custom.classList.add('hidden');
+      const fallback = nextFreeLookupHotkey() || 'Ctrl+Alt+KeyZ';
+      hotkeyInput.dataset.combo = fallback;
+      hotkeyInput.value = comboLabel(fallback);
+      syncLookupControls();
+      return;
+    }
+    row.remove();
+    syncLookupControls();
+  });
+
+  row.append(langWrap, hotkeyInput, remove);
+  lookupsRoot.appendChild(row);
+  syncLookupControls();
+}
+
+function renderLookups(list) {
+  lookupsRoot.replaceChildren();
+  const rows = list && list.length ? list : DEFAULT_LOOKUPS;
+  rows.slice(0, MAX_LOOKUPS).forEach(addLookupRow);
+  syncLookupControls();
+}
+
+function readLookupsFromUi() {
+  const out = [];
+  const seenLang = new Set();
+  const seenHotkey = new Set();
+  const claimed = new Set([
+    ...KEY_FIELDS.map(id => $(id).dataset.combo),
+    ...nativeRows().map(row => row.querySelector('input.key').dataset.combo),
+    ...translatorRows().map(row => row.querySelector('input.key').dataset.combo)
+  ].filter(Boolean));
+
+  for (const row of lookupRows()) {
+    const sel = row.querySelector('select');
+    const custom = row.querySelector('input.lang-custom');
+    const hotkeyEl = row.querySelector('input.key');
+    const language = (sel.value === '__custom__'
+      ? (custom.value || '').trim()
+      : sel.value).trim();
+    const hotkey = (hotkeyEl.dataset.combo || '').trim();
+    if (!language || !hotkey) continue;
+
+    const langKey = language.toLowerCase();
+    if (seenLang.has(langKey) || seenHotkey.has(hotkey)) continue;
+    if (claimed.has(hotkey)) continue;
+
+    seenLang.add(langKey);
+    seenHotkey.add(hotkey);
+    out.push({ language, hotkey });
+    if (out.length >= MAX_LOOKUPS) break;
+  }
+
+  return out;
+}
+
 async function load() {
   const data = await loadSettings();
   TEXT_FIELDS.forEach(k => { $(k).value = data[k]; });
@@ -328,6 +462,7 @@ async function load() {
   renderKeys(normalizeApiKeys(data));
   renderNatives(normalizeNatives(data));
   renderTranslators(normalizeTranslators(data));
+  renderLookups(normalizeLookups(data));
 }
 
 async function save(quiet) {
@@ -345,6 +480,7 @@ async function save(quiet) {
   out.apiKey = '';
   out.natives = normalizeNatives({ natives: readNativesFromUi() });
   out.translators = normalizeTranslators({ translators: readTranslatorsFromUi() });
+  out.lookups = normalizeLookups({ lookups: readLookupsFromUi() });
 
   // Keep the last working key if it is still in the list.
   const prev = await chrome.storage.local.get(['apiKeys', 'apiKey', 'apiKeyIndex']);
@@ -358,21 +494,24 @@ async function save(quiet) {
   if (!out.fixPrompt) out.fixPrompt = DEFAULTS.fixPrompt;
   if (!out.rephrasePrompt) out.rephrasePrompt = DEFAULTS.rephrasePrompt;
   if (!out.translatePrompt) out.translatePrompt = DEFAULTS.translatePrompt;
+  if (!out.lookupPrompt) out.lookupPrompt = DEFAULTS.lookupPrompt;
   if (!out.nativePrompt) out.nativePrompt = DEFAULTS.nativePrompt;
   TEXT_FIELDS.forEach(k => { $(k).value = out[k]; });
   renderKeys(out.apiKeys.length ? out.apiKeys : ['']);
   renderNatives(out.natives);
   renderTranslators(out.translators);
+  renderLookups(out.lookups);
 
   // Local only: these settings stay on this browser profile.
   await chrome.storage.local.set(out);
   if (!quiet) {
     const n = out.apiKeys.length;
     const t = out.translators.length;
+    const l = out.lookups.length;
     const v = out.natives.filter(x => x.on).length;
     say(
       n
-        ? `Saved (${n} key${n === 1 ? '' : 's'}, ${t} language${t === 1 ? '' : 's'}, ${v} tone${v === 1 ? '' : 's'}).`
+        ? `Saved (${n} key${n === 1 ? '' : 's'}, ${t} compose / ${l} lookup lang${(t + l) === 1 ? '' : 's'}, ${v} tone${v === 1 ? '' : 's'}).`
         : 'Saved. Add at least one API key to use any of the buttons.',
       n ? 'ok' : 'bad'
     );
@@ -461,6 +600,7 @@ function reset() {
   $('fixPrompt').value = DEFAULTS.fixPrompt;
   $('rephrasePrompt').value = DEFAULTS.rephrasePrompt;
   $('translatePrompt').value = DEFAULTS.translatePrompt;
+  $('lookupPrompt').value = DEFAULTS.lookupPrompt;
   $('nativePrompt').value = DEFAULTS.nativePrompt;
   say('Instructions restored. Save to keep them.');
 }
@@ -477,6 +617,9 @@ $('addKey').addEventListener('click', () => {
 });
 $('addTranslator').addEventListener('click', () => {
   addTranslatorRow({ language: 'Portuguese', hotkey: nextFreeHotkey() });
+});
+$('addLookup').addEventListener('click', () => {
+  addLookupRow({ language: 'English', hotkey: nextFreeLookupHotkey() });
 });
 
 // Capture a key combination instead of typing one.
