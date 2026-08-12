@@ -1,14 +1,18 @@
 {
   "manifest_version": 3,
   "name": "BidPolish",
-  "version": "1.5.0",
-  "description": "Fix, rephrase, retone, translate or look up chat messages on Freelancer, WhatsApp and Telegram.",
-  "permissions": ["storage"],
+  "version": "1.5.3",
+  "description": "Fix, rephrase, retone, translate or look up chat messages on Freelancer, WhatsApp, Telegram, Slack, ChatGPT, Claude and Gemini.",
+  "permissions": ["storage", "contextMenus"],
   "host_permissions": [
     "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "BidPolish",
+    "default_popup": "popup.html"
   },
   "options_page": "options.html",
   "content_scripts": [
@@ -16,7 +20,15 @@
       "matches": [
         "*://*.freelancer.com/*",
         "*://web.whatsapp.com/*",
-        "*://web.telegram.org/*"
+        "*://web.telegram.org/*",
+        "*://app.slack.com/*",
+        "*://*.slack.com/*",
+        "*://chatgpt.com/*",
+        "*://*.chatgpt.com/*",
+        "*://chat.openai.com/*",
+        "*://claude.ai/*",
+        "*://*.claude.ai/*",
+        "*://gemini.google.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle",

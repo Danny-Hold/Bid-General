@@ -47,6 +47,7 @@
   ];
 
   const cfg = {
+    showBar: true,
     showFeedback: true,
     feedbackSeconds: 6,
     translators: [
@@ -67,6 +68,7 @@
     if (s.keyFix) keys.fix = s.keyFix;
     if (s.keyRephrase) keys.rephrase = s.keyRephrase;
     if (s.keyUndo) keys.undo = s.keyUndo;
+    if (typeof s.showBar === 'boolean') cfg.showBar = s.showBar;
     if (typeof s.showFeedback === 'boolean') cfg.showFeedback = s.showFeedback;
     if (Number(s.feedbackSeconds) > 0) cfg.feedbackSeconds = Number(s.feedbackSeconds);
     if (Array.isArray(s.translators)) {
@@ -95,6 +97,9 @@
         .filter(n => NATIVE_LEVELS.some(l => l.id === n.id));
     }
 
+    if (!cfg.showBar) hide();
+    else if (activeEl) schedule();
+
     if (!fixBtn) return;
     fixBtn.title = 'Correct grammar and spelling only (' + comboLabel(keys.fix) + ')';
     rephraseBtn.title = 'Rewrite in natural US business English (' + comboLabel(keys.rephrase) + ')';
@@ -104,7 +109,7 @@
   }
 
   const WATCHED = [
-    'keyFix', 'keyRephrase', 'keyUndo',
+    'keyFix', 'keyRephrase', 'keyUndo', 'showBar',
     'showFeedback', 'feedbackSeconds', 'translators', 'lookups', 'natives'
   ];
 
@@ -706,6 +711,12 @@
   function position() {
     rafId = null;
 
+    if (!cfg.showBar) {
+      hide();
+      positionLookup();
+      return;
+    }
+
     if (!activeEl || !activeEl.isConnected) {
       hide();
       positionLookup();
@@ -763,7 +774,7 @@
   }
 
   function showPanel(before, after) {
-    if (!cfg.showFeedback || !panel) return;
+    if (!cfg.showBar || !cfg.showFeedback || !panel) return;
 
     clearTimeout(panelTimer);
     clearTimeout(fadeTimer);
@@ -1028,8 +1039,8 @@
     schedule();
   }
 
-  // ---------------------------------------------------------------- events
-
+  // Compose actions that rewrite the chat input still need the composer focused,
+  // but the floating button bar can be hidden via the extension popup.
   function onFocusIn(e) {
     const target = resolveTarget(e.target);
     if (!target) return;

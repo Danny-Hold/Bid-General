@@ -1,6 +1,6 @@
 # BidPolish
 
-A Chrome extension that adds **Fix**, **Rephrase**, **Native tone**, **Translate** and **Lookup** to chats on Freelancer.com, WhatsApp Web and Telegram Web. Compose actions replace text in place; Lookup only shows a translation popup for selected messages.
+A Chrome extension that adds **Fix**, **Rephrase**, **Native tone**, **Translate** and **Lookup** to chats on Freelancer.com, WhatsApp Web, Telegram Web, Slack, ChatGPT, Claude and Gemini. Compose actions replace text in place; Lookup only shows a translation popup for selected messages.
 
 ## Setup
 
@@ -9,7 +9,7 @@ Each person does this once, on their own machine.
 1. Create one or more Gemini API keys at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Turn billing on: on the free tier Google may use your text for training. At Flash rates the real cost is a few dollars a month. Keys from different Google accounts each get their own quota — add 2–3 if you want the extension to keep working when one hits its limit.
 2. Go to `chrome://extensions`, switch on **Developer mode**, click **Load unpacked**, select this folder.
 3. Click **Details → Extension options**, paste the key(s), click **Send a test**. A corrected sentence should come back. If a key is rate-limited or invalid, the extension automatically tries the next one and remembers which key last worked.
-4. Open a chat on Freelancer, [web.whatsapp.com](https://web.whatsapp.com) or [web.telegram.org](https://web.telegram.org) and click into the message box. A small pill appears above the field.
+4. Open a chat on Freelancer, WhatsApp, Telegram, Slack, [ChatGPT](https://chatgpt.com), [Claude](https://claude.ai) or [Gemini](https://gemini.google.com) and click into the message box. A small pill appears above the field.
 
 | Action | Button | Default hotkey |
 |---|---|---|
@@ -93,7 +93,7 @@ You can store up to five keys (2–3 is enough for most teams). On any rewrite o
 
 ## Adjusting scope
 
-WhatsApp Web (`web.whatsapp.com`) and Telegram Web (`web.telegram.org`) are already included. Those sites use `contenteditable` composers rather than `<textarea>`, which the content script handles.
+WhatsApp Web, Telegram Web, Slack, ChatGPT (`chatgpt.com` / `chat.openai.com`), Claude (`claude.ai`) and Gemini (`gemini.google.com`) are already included. Those sites use `contenteditable` composers rather than `<textarea>`, which the content script handles.
 
 **Other Freelancer domains** (`.in`, `.co.uk`, `.com.au`) or other platforms: add them to `content_scripts.matches` in `manifest.json`.
 

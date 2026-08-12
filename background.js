@@ -194,6 +194,53 @@ async function listModels() {
   throw lastError || new Error('All API keys failed.');
 }
 
+const SHOW_BAR_MENU_ID = 'bidpolish-show-bar';
+
+async function syncShowBarMenu() {
+  const { showBar } = await chrome.storage.local.get({ showBar: true });
+  try {
+    await chrome.contextMenus.update(SHOW_BAR_MENU_ID, { checked: showBar !== false });
+  } catch (_) {
+    // Menu may not exist yet during first install race.
+  }
+}
+
+async function ensureShowBarMenu() {
+  try {
+    await chrome.contextMenus.remove(SHOW_BAR_MENU_ID);
+  } catch (_) {}
+
+  const { showBar } = await chrome.storage.local.get({ showBar: true });
+  chrome.contextMenus.create({
+    id: SHOW_BAR_MENU_ID,
+    type: 'checkbox',
+    title: 'Show chat buttons',
+    contexts: ['action'],
+    checked: showBar !== false
+  });
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  ensureShowBarMenu();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureShowBarMenu();
+});
+
+chrome.contextMenus.onClicked.addListener(async (info) => {
+  if (info.menuItemId !== SHOW_BAR_MENU_ID) return;
+  await chrome.storage.local.set({ showBar: !!info.checked });
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.showBar) return;
+  syncShowBarMenu();
+});
+
+// Rebuild the menu once when the service worker wakes.
+ensureShowBarMenu();
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'rewrite') {
     rewrite({ mode: msg.mode, text: msg.text, language: msg.language, level: msg.level })
@@ -206,6 +253,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     listModels()
       .then(models => sendResponse({ ok: true, models }))
       .catch(err => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
+  if (msg?.type === 'showBarChanged') {
+    syncShowBarMenu()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: true }));
     return true;
   }
 });

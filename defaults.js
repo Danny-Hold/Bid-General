@@ -219,6 +219,7 @@ const DEFAULTS = {
   translators: DEFAULT_TRANSLATORS,
   lookups: DEFAULT_LOOKUPS,
   natives: DEFAULT_NATIVES,
+  showBar: true,
   showFeedback: true,
   feedbackSeconds: 6,
   fixPrompt: DEFAULT_FIX_PROMPT,
